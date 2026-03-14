@@ -1,0 +1,15 @@
+# Бинарные файлы Go
+main
+main.exe
+*.exe
+
+# Зависимости Go
+vendor/
+
+# Переменные окружения
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
