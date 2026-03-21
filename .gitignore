@@ -9,7 +9,24 @@ vendor/
 # Переменные окружения
 .env
 
+# Docker volumes
+*_data/
+*_pgadmin/
+
 # IDE
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.sql

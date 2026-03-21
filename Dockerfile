@@ -11,7 +11,7 @@ COPY go.mod go.sum ./
 # Загружаем зависимости
 RUN go mod download
 
-# Копируем исходный код
+# Копируем исходный код и миграции
 COPY . .
 
 # Собираем приложение
@@ -27,6 +27,6 @@ COPY --from=builder /app/main /app/main
 
 USER appuser
 
-EXPOSE 3000
+EXPOSE 4200
 
 CMD ["/app/main"]

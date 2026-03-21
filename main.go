@@ -1,32 +1,48 @@
 package main
 
 import (
-	"net/http"
-	"time"
+	"log"
 
-	"github.com/gin-gonic/gin"
+	"Web_lab/internal/config"
+	"Web_lab/internal/controllers"
+	"Web_lab/internal/handler"
+	"Web_lab/internal/models"
+	"Web_lab/internal/repository"
+	"Web_lab/internal/service"
 )
 
-func infoHandler(c *gin.Context) {
-	now := time.Now()
-
-	nextYear := now.Year() + 1
-	newYear := time.Date(nextYear, time.January, 1, 0, 0, 0, 0, now.Location())
-
-	daysUntilNewYear := int(newYear.Sub(now).Hours() / 24)
-	if daysUntilNewYear < 0 {
-		daysUntilNewYear = 0
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"days_until_new_year": daysUntilNewYear,
-	})
-}
-
 func main() {
-	r := gin.Default()
+	// Загрузка конфигурации
+	cfg := config.Load()
 
-	r.GET("/info", infoHandler)
+	// Подключение к БД
+	database, err := repository.NewDatabase(cfg.DSN())
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer database.Close()
 
-	r.Run(":3000")
+	// Автоматическая миграция через GORM
+	err = database.DB.AutoMigrate(&models.User{})
+	if err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
+	log.Println("Migrations completed successfully")
+
+	// Инициализация слоёв
+	userRepo := repository.NewUserRepository(database)
+	userService := service.NewUserService(userRepo)
+	userHandler := controllers.NewUserHandler(userService)
+
+	// Info handler (старая логика)
+	infoHandler := handler.NewInfoHandler()
+
+	// Настройка роутера
+	router := handler.NewRouter(userHandler, infoHandler)
+
+	// Запуск сервера
+	log.Printf("Server starting on port %s", cfg.Port)
+	if err := router.Run(cfg.Port); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }

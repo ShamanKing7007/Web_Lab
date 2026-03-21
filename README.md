@@ -1,22 +1,35 @@
-# Go New Year Days Counter
+# WoodenButWithSoul API — Магазин изделий из дерева
 
-Простое Go-приложение, которое возвращает количество дней до Нового года в формате JSON.
+RESTful API для управления пользователями магазина изделий из дерева.
 
-## Возможности
+## Требования
 
-- **`/info`** — возвращает JSON с количеством дней до следующего Нового года
+- Go 1.26
+- Docker и Docker Compose
+- PostgreSQL 16+
 
-Пример ответа `/info`:
-```json
-{"days_until_new_year": 304}
+## Быстрый старт
+
+### Запуск через Docker Compose
+
+```bash
+# Сборка и запуск контейнеров
+docker-compose up --build
+
+# Запуск в фоновом режиме
+docker-compose up -d --build
+
+# Просмотр логов
+docker-compose logs -f app
+
+# Остановка контейнеров
+docker-compose down
+
+# Полная очистка (контейнеры + volumes)
+docker-compose down -v
 ```
 
-## Запуск без Docker
-
-### Предварительные требования
-- Go 1.26 или выше
-
-### Команды
+### Запуск без Docker
 
 ```bash
 # Загрузка зависимостей
@@ -29,32 +42,73 @@ go build -o main .
 go run main.go
 ```
 
-Сервер запустится на порту **3000**.
-- http://localhost:3000/info — информация о днях до Нового года
+## API Endpoints
 
-## Запуск через Docker
-```bash
-# Сборка и запуск контейнера
-docker-compose up --build
+| Метод | URI | Описание | Статус |
+|-------|-----|----------|--------|
+| `GET` | `/info` | Дни до Нового года | `200 OK` |
+| `GET` | `/users` | Список пользователей (с пагинацией) | `200 OK` |
+| `GET` | `/users/:id` | Пользователь по ID | `200 OK` / `404 Not Found` |
+| `POST` | `/users` | Создать пользователя | `201 Created` / `409 Conflict` |
+| `PUT` | `/users/:id` | Полное обновление | `200 OK` / `404 Not Found` |
+| `PATCH` | `/users/:id` | Частичное обновление | `200 OK` / `404 Not Found` |
+| `DELETE` | `/users/:id` | Удалить (Soft Delete) | `204 No Content` / `404 Not Found` |
 
-# Запуск в фоновом режиме
-docker-compose up -d --build
-
-# Просмотр логов
-docker-compose logs -f
-
-# Остановка контейнера
-docker-compose down
-```
 
 ## Структура проекта
 
 ```
 .
-├── main.go           # Исходный код приложения
-├── go.mod            # Файл модуля Go
-├── go.sum            # Файл зависимостей Go
-├── Dockerfile        # Конфигурация Docker-образа
-├── docker-compose.yml # Конфигурация Docker Compose
-└── README.md         # Документация
+├── internal/
+│   ├── config/          # Конфигурация приложения
+│   ├── controllers/     # HTTP контроллеры
+│   ├── errors/          # Кастомные ошибки
+│   ├── handler/         # Роутер и обработчики
+│   ├── models/          # Модели данных
+│   ├── repository/      # Репозиторий (работа с БД)
+│   ├── service/         # Бизнес-логика
+│   └── validator/       # Валидация данных
+├── .env                 # Переменные окружения
+├── .env.example         # Шаблон переменных
+├── docker-compose.yml   # Docker Compose конфигурация
+├── Dockerfile           # Docker образ
+├── go.mod               # Go модуль
+├── go.sum               # Go зависимости
+├── main.go              # Точка входа
+└── README.md            # Документация
 ```
+
+## База данных
+
+### Модель User
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `id` | UUID | Первичный ключ |
+| `name` | VARCHAR(100) | Имя пользователя |
+| `email` | VARCHAR(255) | Email (уникальный) |
+| `password` | VARCHAR(255) | Хешированный пароль (bcrypt) |
+| `created_at` | TIMESTAMP | Дата создания |
+| `updated_at` | TIMESTAMP | Дата обновления |
+| `deleted_at` | TIMESTAMP | Soft delete (NULL = активен) |
+
+### Миграции
+
+Приложение использует **GORM AutoMigrate** для автоматического создания и обновления схемы базы данных при запуске.
+
+## Безопасность и валидация
+
+- Пароли хешируются с помощью **bcrypt**
+- Soft delete для сохранения истории данных
+- Валидация входных данных:
+  - Email: формат email
+  - Пароль: минимум 4 символа
+  - Имя: 2-100 символов
+  - Пагинация: page >= 1, limit 1-100
+
+## Зависимости
+
+- [Gin](https://github.com/gin-gonic/gin) — HTTP фреймворк
+- [GORM](https://gorm.io/) — ORM для Go
+- [bcrypt](https://pkg.go.dev/golang.org/x/crypto/bcrypt) — Хеширование паролей
+- [UUID](https://github.com/google/uuid) — Генерация UUID
