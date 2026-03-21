@@ -8,7 +8,7 @@ RESTful API для управления пользователями магаз�
 - Docker и Docker Compose
 - PostgreSQL 16+
 
-## Быстрый старт
+## Старт
 
 ### Запуск через Docker Compose
 
