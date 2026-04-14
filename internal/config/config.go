@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -16,37 +17,33 @@ type Config struct {
 
 func Load() *Config {
 	cfg := &Config{
-		DBHost:     os.Getenv("DB_HOST"),
-		DBPort:     os.Getenv("DB_PORT"),
-		DBUser:     os.Getenv("DB_USER"),
+		DBHost:     getEnvOrDefault("DB_HOST", "localhost"),
+		DBPort:     getEnvOrDefault("DB_PORT", "5432"),
+		DBUser:     getEnvOrDefault("DB_USER", ""),
 		DBPassword: os.Getenv("DB_PASSWORD"),
-		DBName:     os.Getenv("DB_NAME"),
-		Port:       os.Getenv("PORT"),
+		DBName:     getEnvOrDefault("DB_NAME", "Web_Labs"),
+		Port:       getEnvOrDefault("PORT", "4200"),
 	}
 
-	// Значения по умолчанию
-	if cfg.DBHost == "" {
-		cfg.DBHost = "localhost"
-	}
-	if cfg.DBPort == "" {
-		cfg.DBPort = "5432"
-	}
+	// Обязательные параметры
 	if cfg.DBUser == "" {
-		cfg.DBUser = "nix"
+		log.Fatal("DB_USER environment variable is required")
 	}
 	if cfg.DBPassword == "" {
-		cfg.DBPassword = "sews"
-	}
-	if cfg.DBName == "" {
-		cfg.DBName = "woodenButWithSoul"
-	}
-	if cfg.Port == "" {
-		cfg.Port = "4200"
+		log.Fatal("DB_PASSWORD environment variable is required")
 	}
 
 	return cfg
 }
 
+func getEnvOrDefault(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
+}
+
+// DSN — формат для GORM
 func (c *Config) DSN() string {
 	return fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",

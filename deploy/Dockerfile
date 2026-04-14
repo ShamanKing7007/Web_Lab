@@ -23,6 +23,8 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates curl
 RUN adduser -D -g '' appuser
 
+WORKDIR /app
+
 COPY --from=builder /app/main /app/main
 
 USER appuser

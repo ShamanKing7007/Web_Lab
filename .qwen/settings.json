@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git reset *)",
+      "Bash(rmdir *)",
+      "Bash(go *)",
+      "Bash(del *)",
+      "Bash(mkdir *)",
+      "Bash(copy *)",
+      "Bash(move *)",
+      "Bash(docker-compose *)",
+      "Bash(docker logs *)",
+      "Bash(docker ps)",
+      "Bash(curl *)",
+      "Bash(echo.)",
+      "Bash(docker exec *)",
+      "Bash(docker rm *)",
+      "Bash(ren *)",
+      "Bash(findstr *)",
+      "Bash(docker volume *)",
+      "Bash(docker restart *)",
+      "Bash(timeout *)",
+      "Bash(docker system *)",
+      "Bash(git add *)"
+    ]
+  },
+  "$version": 3
+}

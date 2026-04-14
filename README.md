@@ -1,18 +1,24 @@
-# WoodenButWithSoul API — Магазин изделий из дерева
+# Web_Labs — RESTful API для заметок
 
-RESTful API для управления пользователями магазина изделий из дерева.
+RESTful API для управления заметками, реализованное на Go (Gin + GORM + PostgreSQL).
 
-## Требования
+## Стек технологий
 
-- Go 1.26
-- Docker и Docker Compose
-- PostgreSQL 16+
+- **Язык:** Go 1.26
+- **Фреймворк:** Gin (HTTP-маршрутизация)
+- **ORM:** GORM (работа с БД)
+- **СУБД:** PostgreSQL 16
+- **Миграции:** GORM AutoMigrate
+- **Контейнеризация:** Docker + Docker Compose
 
 ## Быстрый старт
 
 ### Запуск через Docker Compose
 
 ```bash
+# Перейти в директорию deploy
+cd deploy
+
 # Сборка и запуск контейнеров
 docker-compose up --build
 
@@ -24,91 +30,108 @@ docker-compose logs -f app
 
 # Остановка контейнеров
 docker-compose down
-
-# Полная очистка (контейнеры + volumes)
-docker-compose down -v
-```
-
-### Запуск без Docker
-
-```bash
-# Загрузка зависимостей
-go mod download
-
-# Сборка приложения
-go build -o main .
-
-# Запуск сервера
-go run main.go
 ```
 
 ## API Endpoints
 
 | Метод | URI | Описание | Статус |
 |-------|-----|----------|--------|
-| `GET` | `/info` | Дни до Нового года | `200 OK` |
-| `GET` | `/users` | Список пользователей (с пагинацией) | `200 OK` |
-| `GET` | `/users/:id` | Пользователь по ID | `200 OK` / `404 Not Found` |
-| `POST` | `/users` | Создать пользователя | `201 Created` / `409 Conflict` |
-| `PUT` | `/users/:id` | Полное обновление | `200 OK` / `404 Not Found` |
-| `PATCH` | `/users/:id` | Частичное обновление | `200 OK` / `404 Not Found` |
-| `DELETE` | `/users/:id` | Удалить (Soft Delete) | `204 No Content` / `404 Not Found` |
+| `GET` | `/health` | Проверка работоспособности | `200 OK` |
+| `GET` | `/notes` | Список заметок (с пагинацией) | `200 OK` |
+| `GET` | `/notes/:id` | Заметка по ID | `200 OK` / `404 Not Found` |
+| `POST` | `/notes` | Создать заметку | `201 Created` |
+| `PUT` | `/notes/:id` | Полное обновление заметки | `200 OK` / `404 Not Found` |
+| `PATCH` | `/notes/:id` | Частичное обновление заметки | `200 OK` / `404 Not Found` |
+| `DELETE` | `/notes/:id` | Удалить заметку (Soft Delete) | `204 No Content` / `404 Not Found` |
 
+### Пагинация (GET /notes)
+
+Параметры передаются через Query String:
+
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|-------------|----------|
+| `page` | int | `1` | Номер страницы (min: 1) |
+| `limit` | int | `10` | Кол-во записей на странице (min: 1, max: 100) |
+
+### Обработка ошибок
+
+| Код | Описание |
+|-----|----------|
+| `400 Bad Request` | Ошибка валидации (некорректный формат данных, пустой заголовок) |
+| `404 Not Found` | Заметка не найдена или уже удалена |
+| `500 Internal Server Error` | Внутренняя ошибка сервера |
 
 ## Структура проекта
 
 ```
 .
+├── deploy/
+│   ├── .dockerignore      # Исключения для Docker
+│   ├── .env.example       # Шаблон переменных окружения
+│   ├── docker-compose.yml # Оркестрация сервисов
+│   └── Dockerfile         # Образ приложения
 ├── internal/
-│   ├── config/          # Конфигурация приложения
-│   ├── controllers/     # HTTP контроллеры
-│   ├── errors/          # Кастомные ошибки
-│   ├── handler/         # Роутер и обработчики
-│   ├── models/          # Модели данных
-│   ├── repository/      # Репозиторий (работа с БД)
-│   ├── service/         # Бизнес-логика
-│   └── validator/       # Валидация данных
-├── .env                 # Переменные окружения
-├── .env.example         # Шаблон переменных
-├── docker-compose.yml   # Docker Compose конфигурация
-├── Dockerfile           # Docker образ
-├── go.mod               # Go модуль
-├── go.sum               # Go зависимости
-├── main.go              # Точка входа
-└── README.md            # Документация
+│   ├── apperrors/         # Кастомные ошибки
+│   ├── config/            # Конфигурация приложения
+│   ├── database/          # Подключение к БД и миграции
+│   ├── notes/
+│   │   ├── handler/       # HTTP обработчики
+│   │   ├── models/        # Модель Note (GORM)
+│   │   ├── repository/    # Репозиторий (CRUD, интерфейс)
+│   │   ├── routes/        # Маршруты Gin
+│   │   ├── service/       # Бизнес-логика (интерфейсы)
+│   │   └── validator/     # Валидация данных
+├── .dockerignore
+├── .env                   # Переменные окружения (не в git)
+├── .gitignore
+├── go.mod                 # Go модуль
+├── go.sum                 # Go зависимости
+├── main.go                # Точка входа
+└── README.md              # Документация
 ```
 
 ## База данных
 
-### Модель User
+### Модель Note
 
 | Поле | Тип | Описание |
 |------|-----|----------|
-| `id` | UUID | Первичный ключ |
-| `name` | VARCHAR(100) | Имя пользователя |
-| `email` | VARCHAR(255) | Email (уникальный) |
-| `password` | VARCHAR(255) | Хешированный пароль (bcrypt) |
-| `created_at` | TIMESTAMP | Дата создания |
-| `updated_at` | TIMESTAMP | Дата обновления |
-| `deleted_at` | TIMESTAMP | Soft delete (NULL = активен) |
+| `id` | UUID | Первичный ключ (автоматическая генерация) |
+| `title` | VARCHAR(200) | Заголовок заметки (обязательное, не пустое) |
+| `content` | TEXT | Текст заметки (необязательное) |
+| `created_at` | TIMESTAMP WITH TIME ZONE | Дата создания |
+| `updated_at` | TIMESTAMP WITH TIME ZONE | Дата последнего обновления |
+| `deleted_at` | TIMESTAMP WITH TIME ZONE | Soft delete (NULL = активна) |
 
 ### Миграции
 
-Приложение использует **GORM AutoMigrate** для автоматического создания и обновления схемы базы данных при запуске.
+Схема базы данных создаётся автоматически через GORM AutoMigrate при каждом запуске приложения.
 
-## Безопасность и валидация
+## Переменные окружения
 
-- Пароли хешируются с помощью **bcrypt**
-- Soft delete для сохранения истории данных
-- Валидация входных данных:
-  - Email: формат email
-  - Пароль: минимум 4 символа
-  - Имя: 2-100 символов
-  - Пагинация: page >= 1, limit 1-100
+| Переменная | По умолчанию | Описание |
+|-------------|-------------|----------|
+| `DB_USER` | `nix` | Пользователь PostgreSQL |
+| `DB_PASSWORD` | `sews` | Пароль PostgreSQL |
+| `DB_NAME` | `Web_Labs` | Имя базы данных |
+| `DB_HOST` | `localhost` | Хост базы данных |
+| `DB_PORT` | `5432` | Порт базы данных |
+| `PORT` | `4200` | Порт приложения |
+
+## Сервисы Docker Compose
+
+| Сервис | Описание | Порт |
+|--------|----------|------|
+| `web_labs_db` | PostgreSQL 16 | `5432` |
+| `web_labs_app` | Go-приложение | `4200` |
+| `web_labs_pgadmin` | pgAdmin 4 | `5050` |
+
+pgAdmin доступен по адресу: http://localhost:5050
+- **Email:** `admin@admin.com`
+- **Пароль:** `admin`
 
 ## Зависимости
 
 - [Gin](https://github.com/gin-gonic/gin) — HTTP фреймворк
 - [GORM](https://gorm.io/) — ORM для Go
-- [bcrypt](https://pkg.go.dev/golang.org/x/crypto/bcrypt) — Хеширование паролей
 - [UUID](https://github.com/google/uuid) — Генерация UUID

@@ -4,11 +4,12 @@ import (
 	"log"
 
 	"Web_lab/internal/config"
-	"Web_lab/internal/controllers"
-	"Web_lab/internal/handler"
-	"Web_lab/internal/models"
-	"Web_lab/internal/repository"
-	"Web_lab/internal/service"
+	"Web_lab/internal/database"
+	"Web_lab/internal/notes/handler"
+	noteModels "Web_lab/internal/notes/models"
+	"Web_lab/internal/notes/repository"
+	"Web_lab/internal/notes/routes"
+	"Web_lab/internal/notes/service"
 )
 
 func main() {
@@ -16,29 +17,26 @@ func main() {
 	cfg := config.Load()
 
 	// Подключение к БД
-	database, err := repository.NewDatabase(cfg.DSN())
+	db, err := database.NewDatabase(cfg.DSN())
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer database.Close()
+	defer db.Close()
 
 	// Автоматическая миграция через GORM
-	err = database.DB.AutoMigrate(&models.User{})
+	err = db.DB.AutoMigrate(&noteModels.Note{})
 	if err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 	log.Println("Migrations completed successfully")
 
-	// Инициализация слоёв
-	userRepo := repository.NewUserRepository(database)
-	userService := service.NewUserService(userRepo)
-	userHandler := controllers.NewUserHandler(userService)
-
-	// Info handler (старая логика)
-	infoHandler := handler.NewInfoHandler()
+	// Инициализация слоёв (Dependency Injection)
+	noteRepo := repository.NewNoteRepository(db)
+	noteService := service.NewNoteService(noteRepo)
+	noteHandler := handler.NewNoteHandler(noteService)
 
 	// Настройка роутера
-	router := handler.NewRouter(userHandler, infoHandler)
+	router := routes.NewNoteRouter(noteHandler)
 
 	// Запуск сервера
 	log.Printf("Server starting on port %s", cfg.Port)
