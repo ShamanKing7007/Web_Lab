@@ -11,12 +11,12 @@ import (
 
 // Интерфейс сервиса для тестирования
 type NoteService interface {
-	Create(dto CreateNoteDTO) (*models.Note, error)
-	GetByID(id uuid.UUID) (*models.Note, error)
-	GetAll(page, limit int) (*NotesResponse, error)
-	Update(id uuid.UUID, dto UpdateNoteDTO) (*models.Note, error)
-	Patch(id uuid.UUID, dto UpdateNoteDTO) (*models.Note, error)
-	Delete(id uuid.UUID) error
+	Create(dto CreateNoteDTO, userID uuid.UUID) (*models.Note, error)
+	GetByID(id uuid.UUID, userID uuid.UUID) (*models.Note, error)
+	GetAll(userID uuid.UUID, page, limit int) (*NotesResponse, error)
+	Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*models.Note, error)
+	Patch(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*models.Note, error)
+	Delete(id uuid.UUID, userID uuid.UUID) error
 }
 
 type NoteServiceImpl struct {
@@ -53,14 +53,15 @@ type NotesResponse struct {
 	Meta PaginationMeta `json:"meta"`
 }
 
-// Создание заметки
-func (s *NoteServiceImpl) Create(dto CreateNoteDTO) (*models.Note, error) {
+// Создание заметки (привязка к пользователю)
+func (s *NoteServiceImpl) Create(dto CreateNoteDTO, userID uuid.UUID) (*models.Note, error) {
 	if !validator.IsValidNoteTitle(dto.Title) {
 		return nil, apperrors.ErrValidation
 	}
 
 	note := &models.Note{
 		ID:      uuid.New(),
+		UserID:  &userID,
 		Title:   dto.Title,
 		Content: dto.Content,
 	}
@@ -73,21 +74,26 @@ func (s *NoteServiceImpl) Create(dto CreateNoteDTO) (*models.Note, error) {
 	return note, nil
 }
 
-// Поиск по ID
-func (s *NoteServiceImpl) GetByID(id uuid.UUID) (*models.Note, error) {
+// Поиск по ID (с проверкой владения)
+func (s *NoteServiceImpl) GetByID(id uuid.UUID, userID uuid.UUID) (*models.Note, error) {
 	note, err := s.repo.FindByID(id)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.ErrNotFound
 	}
+
+	if note.UserID == nil || *note.UserID != userID {
+		return nil, apperrors.ErrForbidden
+	}
+
 	return note, nil
 }
 
-// Получить все с пагинацией
-func (s *NoteServiceImpl) GetAll(page, limit int) (*NotesResponse, error) {
+// Получить все заметки пользователя с пагинацией
+func (s *NoteServiceImpl) GetAll(userID uuid.UUID, page, limit int) (*NotesResponse, error) {
 	page, limit = validator.ValidatePagination(page, limit)
 	offset := (page - 1) * limit
 
-	notes, total, err := s.repo.FindAll(offset, limit)
+	notes, total, err := s.repo.FindAllByUser(userID, offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -108,14 +114,17 @@ func (s *NoteServiceImpl) GetAll(page, limit int) (*NotesResponse, error) {
 	}, nil
 }
 
-// Полное обновление заметки (PUT) — title обязателен
-func (s *NoteServiceImpl) Update(id uuid.UUID, dto UpdateNoteDTO) (*models.Note, error) {
+// Полное обновление заметки (PUT) — title обязателен + проверка владения
+func (s *NoteServiceImpl) Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*models.Note, error) {
 	note, err := s.repo.FindByID(id)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.ErrNotFound
 	}
 
-	// При полном обновлении title не может быть пустым
+	if note.UserID == nil || *note.UserID != userID {
+		return nil, apperrors.ErrForbidden
+	}
+
 	if dto.Title == "" || !validator.IsValidNoteTitle(dto.Title) {
 		return nil, apperrors.ErrValidation
 	}
@@ -131,11 +140,15 @@ func (s *NoteServiceImpl) Update(id uuid.UUID, dto UpdateNoteDTO) (*models.Note,
 	return note, nil
 }
 
-// Частичное обновление заметки (PATCH) — обновляет только переданные поля
-func (s *NoteServiceImpl) Patch(id uuid.UUID, dto UpdateNoteDTO) (*models.Note, error) {
+// Частичное обновление заметки (PATCH) + проверка владения
+func (s *NoteServiceImpl) Patch(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*models.Note, error) {
 	note, err := s.repo.FindByID(id)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.ErrNotFound
+	}
+
+	if note.UserID == nil || *note.UserID != userID {
+		return nil, apperrors.ErrForbidden
 	}
 
 	if dto.Title != "" && !validator.IsValidNoteTitle(dto.Title) {
@@ -157,8 +170,17 @@ func (s *NoteServiceImpl) Patch(id uuid.UUID, dto UpdateNoteDTO) (*models.Note, 
 	return note, nil
 }
 
-// Soft delete — один запрос к БД
-func (s *NoteServiceImpl) Delete(id uuid.UUID) error {
+// Soft delete — с проверкой владения
+func (s *NoteServiceImpl) Delete(id uuid.UUID, userID uuid.UUID) error {
+	note, err := s.repo.FindByID(id)
+	if err != nil {
+		return apperrors.ErrNotFound
+	}
+
+	if note.UserID == nil || *note.UserID != userID {
+		return apperrors.ErrForbidden
+	}
+
 	result := s.repo.Delete(id)
 	if result.RowsAffected == 0 {
 		return apperrors.ErrNotFound

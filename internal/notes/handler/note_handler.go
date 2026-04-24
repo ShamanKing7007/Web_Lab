@@ -7,6 +7,7 @@ import (
 
 	"Web_lab/internal/apperrors"
 	"Web_lab/internal/notes/service"
+	"Web_lab/internal/users/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -30,16 +31,37 @@ func parseID(c *gin.Context) (uuid.UUID, bool) {
 	return id, true
 }
 
-// CreateNote создаёт новую заметку
-func (h *NoteHandler) CreateNote(c *gin.Context) {
-	var dto service.CreateNoteDTO
+// getUserID — извлекает userID из контекста (устанавливается middleware)
+func getUserID(c *gin.Context) (uuid.UUID, bool) {
+	userIDStr, ok := middleware.GetUserID(c.Request.Context())
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return uuid.Nil, false
+	}
 
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return uuid.Nil, false
+	}
+
+	return userID, true
+}
+
+// CreateNote создаёт новую заметку (привязка к пользователю)
+func (h *NoteHandler) CreateNote(c *gin.Context) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	var dto service.CreateNoteDTO
 	if err := c.ShouldBindJSON(&dto); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	note, err := h.service.Create(dto)
+	note, err := h.service.Create(dto, userID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrValidation) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid data"})
@@ -52,12 +74,17 @@ func (h *NoteHandler) CreateNote(c *gin.Context) {
 	c.JSON(http.StatusCreated, note)
 }
 
-// GetNotes получает все заметки с пагинацией
+// GetNotes получает все заметки пользователя с пагинацией
 func (h *NoteHandler) GetNotes(c *gin.Context) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 
-	response, err := h.service.GetAll(page, limit)
+	response, err := h.service.GetAll(userID, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get notes"})
 		return
@@ -66,17 +93,26 @@ func (h *NoteHandler) GetNotes(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// GetNote получает заметку по ID
+// GetNote получает заметку по ID (с проверкой владения)
 func (h *NoteHandler) GetNote(c *gin.Context) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
 	id, ok := parseID(c)
 	if !ok {
 		return
 	}
 
-	note, err := h.service.GetByID(id)
+	note, err := h.service.GetByID(id, userID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": apperrors.ErrNotFound.Error()})
+			return
+		}
+		if errors.Is(err, apperrors.ErrForbidden) {
+			c.JSON(http.StatusForbidden, gin.H{"error": apperrors.ErrForbidden.Error()})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get note"})
@@ -86,8 +122,13 @@ func (h *NoteHandler) GetNote(c *gin.Context) {
 	c.JSON(http.StatusOK, note)
 }
 
-// UpdateNote полностью обновляет заметку (PUT)
+// UpdateNote полностью обновляет заметку (PUT) — только владелец
 func (h *NoteHandler) UpdateNote(c *gin.Context) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
 	id, ok := parseID(c)
 	if !ok {
 		return
@@ -99,7 +140,7 @@ func (h *NoteHandler) UpdateNote(c *gin.Context) {
 		return
 	}
 
-	note, err := h.service.Update(id, dto)
+	note, err := h.service.Update(id, dto, userID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrValidation) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid data"})
@@ -109,6 +150,10 @@ func (h *NoteHandler) UpdateNote(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": apperrors.ErrNotFound.Error()})
 			return
 		}
+		if errors.Is(err, apperrors.ErrForbidden) {
+			c.JSON(http.StatusForbidden, gin.H{"error": apperrors.ErrForbidden.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update note"})
 		return
 	}
@@ -116,8 +161,13 @@ func (h *NoteHandler) UpdateNote(c *gin.Context) {
 	c.JSON(http.StatusOK, note)
 }
 
-// PatchNote частично обновляет заметку (PATCH)
+// PatchNote частично обновляет заметку (PATCH) — только владелец
 func (h *NoteHandler) PatchNote(c *gin.Context) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
 	id, ok := parseID(c)
 	if !ok {
 		return
@@ -129,7 +179,7 @@ func (h *NoteHandler) PatchNote(c *gin.Context) {
 		return
 	}
 
-	note, err := h.service.Patch(id, dto)
+	note, err := h.service.Patch(id, dto, userID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrValidation) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid data"})
@@ -139,6 +189,10 @@ func (h *NoteHandler) PatchNote(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": apperrors.ErrNotFound.Error()})
 			return
 		}
+		if errors.Is(err, apperrors.ErrForbidden) {
+			c.JSON(http.StatusForbidden, gin.H{"error": apperrors.ErrForbidden.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update note"})
 		return
 	}
@@ -146,17 +200,26 @@ func (h *NoteHandler) PatchNote(c *gin.Context) {
 	c.JSON(http.StatusOK, note)
 }
 
-// DeleteNote удаляет заметку (Soft Delete)
+// DeleteNote удаляет заметку (Soft Delete) — только владелец
 func (h *NoteHandler) DeleteNote(c *gin.Context) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
 	id, ok := parseID(c)
 	if !ok {
 		return
 	}
 
-	err := h.service.Delete(id)
+	err := h.service.Delete(id, userID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": apperrors.ErrNotFound.Error()})
+			return
+		}
+		if errors.Is(err, apperrors.ErrForbidden) {
+			c.JSON(http.StatusForbidden, gin.H{"error": apperrors.ErrForbidden.Error()})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete note"})

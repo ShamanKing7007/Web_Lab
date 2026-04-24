@@ -7,22 +7,26 @@ import (
 )
 
 type Config struct {
-	DBHost     string
-	DBPort     string
-	DBUser     string
-	DBPassword string
-	DBName     string
-	Port       string
+	DBHost           string
+	DBPort           string
+	DBUser           string
+	DBPassword       string
+	DBName           string
+	Port             string
+	JWTAccessSecret  string
+	JWTRefreshSecret string
 }
 
 func Load() *Config {
 	cfg := &Config{
-		DBHost:     getEnvOrDefault("DB_HOST", "localhost"),
-		DBPort:     getEnvOrDefault("DB_PORT", "5432"),
-		DBUser:     getEnvOrDefault("DB_USER", ""),
-		DBPassword: os.Getenv("DB_PASSWORD"),
-		DBName:     getEnvOrDefault("DB_NAME", "Web_Labs"),
-		Port:       getEnvOrDefault("PORT", "4200"),
+		DBHost:           getEnvOrDefault("DB_HOST", "localhost"),
+		DBPort:           getEnvOrDefault("DB_PORT", "5432"),
+		DBUser:           getEnvOrDefault("DB_USER", ""),
+		DBPassword:       os.Getenv("DB_PASSWORD"),
+		DBName:           getEnvOrDefault("DB_NAME", "Web_Labs"),
+		Port:             getEnvOrDefault("PORT", "4200"),
+		JWTAccessSecret:  os.Getenv("JWT_ACCESS_SECRET"),
+		JWTRefreshSecret: os.Getenv("JWT_REFRESH_SECRET"),
 	}
 
 	// Обязательные параметры
@@ -31,6 +35,12 @@ func Load() *Config {
 	}
 	if cfg.DBPassword == "" {
 		log.Fatal("DB_PASSWORD environment variable is required")
+	}
+	if cfg.JWTAccessSecret == "" {
+		log.Fatal("JWT_ACCESS_SECRET environment variable is required")
+	}
+	if cfg.JWTRefreshSecret == "" {
+		log.Fatal("JWT_REFRESH_SECRET environment variable is required")
 	}
 
 	return cfg

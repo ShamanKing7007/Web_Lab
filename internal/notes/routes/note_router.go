@@ -10,7 +10,7 @@ type NoteRouter struct {
 	Engine *gin.Engine
 }
 
-func NewNoteRouter(noteHandler *handler.NoteHandler) *NoteRouter {
+func NewNoteRouter(noteHandler *handler.NoteHandler, authMiddleware gin.HandlerFunc) *NoteRouter {
 	engine := gin.Default()
 
 	// Health check
@@ -18,8 +18,9 @@ func NewNoteRouter(noteHandler *handler.NoteHandler) *NoteRouter {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// Группа маршрутов /notes
+	// Группа маршрутов /notes (защищена middleware)
 	notes := engine.Group("/notes")
+	notes.Use(authMiddleware)
 	{
 		notes.POST("", noteHandler.CreateNote)
 		notes.GET("", noteHandler.GetNotes)
