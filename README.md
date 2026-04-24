@@ -2,16 +2,6 @@
 
 RESTful API для заметок с аутентификацией и авторизацией на Go (`Gin + GORM + PostgreSQL`).
 
-Проект включает:
-- CRUD для заметок
-- soft delete
-- пагинацию
-- регистрацию и вход по email/password
-- JWT access/refresh tokens в `HttpOnly` cookies
-- refresh-сессии с хранением в БД
-- OAuth 2.0 через Yandex ID
-- восстановление пароля через одноразовый reset token
-
 ## Стек
 
 - Go 1.26
@@ -44,14 +34,6 @@ docker compose up --build
 cd deploy
 docker compose down
 ```
-
-Полная очистка:
-
-```bash
-cd deploy
-docker compose down -v
-```
-
 ## Переменные окружения
 
 Основные переменные из `deploy/.env.example`:
@@ -72,8 +54,6 @@ docker compose down -v
 | `OAUTH_PROVIDER` | Значение в примере есть, но текущий код поддерживает только `yandex` |
 | `PGADMIN_PASSWORD` | Пароль для pgAdmin |
 
-Примечание:
-- В `deploy/.env.example` также есть `JWT_ACCESS_EXPIRATION` и `JWT_REFRESH_EXPIRATION`, но текущая версия кода их не читает. Сейчас сроки жизни токенов зафиксированы в коде: `15 минут` и `7 дней`.
 
 ## API
 
@@ -179,8 +159,6 @@ curl -X POST http://localhost:4200/auth/logout-all \
 
 ### Запрос reset token
 
-Текущая учебная реализация возвращает `reset_token` прямо в ответе API.
-
 ```bash
 curl -X POST http://localhost:4200/auth/forgot-password \
   -H "Content-Type: application/json" \
@@ -224,9 +202,6 @@ curl -X POST http://localhost:4200/auth/reset-password \
 │       ├── repository/
 │       ├── routes/
 │       └── service/
-├── Lab2.md
-├── Lab3.md
-├── PROTECTION.md
 ├── main.go
 └── README.md
 ```
@@ -274,23 +249,6 @@ curl -X POST http://localhost:4200/auth/reset-password \
 - `Note`
 - `User`
 - `Token`
-
-Это означает, что для добавления новых nullable-полей обычно достаточно перезапустить приложение.
-
-## Безопасность
-
-- Пароли хешируются через `bcrypt` с отдельной случайной солью.
-- Access token хранится в `HttpOnly` cookie.
-- Refresh token хранится в `HttpOnly` cookie, а его bcrypt-хеш сохраняется в БД.
-- `/auth/logout` отзывает только текущую refresh-сессию.
-- `/auth/logout-all` отзывает все refresh-сессии пользователя.
-- При `refresh` старый refresh token инвалидируется, создаётся новая пара токенов и новая запись сессии.
-- OAuth flow использует параметр `state`.
-- Все заметки привязаны к владельцу, проверка прав выполняется в сервисном слое.
-
-Важно:
-- В текущей версии cookies выставляются с `HttpOnly`, но без явной настройки `SameSite` и `Secure`.
-- Восстановление пароля реализовано как учебный сценарий: reset token возвращается в JSON-ответе, а не отправляется по email.
 
 ## Обработка ошибок
 
