@@ -24,6 +24,9 @@ docker compose up --build
 
 Приложение будет доступно на `http://localhost:4200`.
 
+Swagger UI в режиме разработки доступен на `http://localhost:4200/api/docs/index.html`.
+Если `APP_ENV=production` или `SWAGGER_ENABLED=false`, маршрут документации не регистрируется и возвращает `404 Not Found`.
+
 Дополнительно:
 - PostgreSQL: `localhost:5432`
 - pgAdmin: `http://localhost:5050`
@@ -40,19 +43,31 @@ docker compose down
 
 | Переменная | Описание |
 |---|---|
-| `DB_HOST` | Хост PostgreSQL |
-| `DB_PORT` | Порт PostgreSQL |
-| `DB_USER` | Пользователь PostgreSQL |
-| `DB_PASSWORD` | Пароль PostgreSQL |
-| `DB_NAME` | Имя базы данных |
-| `PORT` | Порт приложения |
-| `JWT_ACCESS_SECRET` | Секрет для access token |
-| `JWT_REFRESH_SECRET` | Секрет для refresh token |
+| `DB_HOST` | Хост PostgreSQL, по умолчанию `localhost` |
+| `DB_PORT` | Порт PostgreSQL, по умолчанию `5432` |
+| `DB_USER` | Пользователь PostgreSQL, обязательная переменная |
+| `DB_PASSWORD` | Пароль PostgreSQL, обязательная переменная |
+| `DB_NAME` | Имя базы данных, по умолчанию `Web_Labs` |
+| `PORT` | Порт приложения, по умолчанию `4200` |
+| `APP_ENV` | Окружение приложения; влияет на Swagger (`production` отключает его по умолчанию) |
+| `SWAGGER_ENABLED` | Явное включение или выключение Swagger UI |
+| `JWT_ACCESS_SECRET` | Секрет для access token, обязательная переменная |
+| `JWT_REFRESH_SECRET` | Секрет для refresh token, обязательная переменная |
+| `JWT_ACCESS_EXPIRATION` | Время жизни access token JWT, например `30s`, `15m`, `1h` |
+| `JWT_REFRESH_EXPIRATION` | Время жизни refresh token JWT; поддерживается и формат дней, например `7d` |
 | `CLIENT_ID` | Yandex OAuth client id |
 | `CLIENT_SECRET` | Yandex OAuth client secret |
-| `CALLBACK_URL` | Callback URL OAuth |
-| `OAUTH_PROVIDER` | Значение в примере есть, но текущий код поддерживает только `yandex` |
+| `CALLBACK_URL` | Callback URL OAuth, например `http://localhost:4200/auth/oauth/yandex/callback` |
+| `OAUTH_PROVIDER` | Значение есть в конфиге, но текущая реализация обрабатывает только `yandex` |
 | `PGADMIN_PASSWORD` | Пароль для pgAdmin |
+
+Примечание:
+- `JWT_ACCESS_EXPIRATION` и `JWT_REFRESH_EXPIRATION` читаются приложением из `.env`.
+- Поддерживаются стандартные значения Go duration: `30s`, `15m`, `1h`.
+- Для refresh token дополнительно поддержан формат с днями, например `7d`.
+- Время жизни cookies `access_token` и `refresh_token` синхронизировано с `JWT_ACCESS_EXPIRATION` и `JWT_REFRESH_EXPIRATION`.
+- Если `APP_ENV` не задан, приложение использует `development`. Также поддерживается fallback на `NODE_ENV`.
+- Для локальной разработки используйте `APP_ENV=development` и `SWAGGER_ENABLED=true`.
 
 
 ## API
@@ -89,7 +104,7 @@ docker compose down
 | `POST` | `/notes` | Создание заметки |
 | `PUT` | `/notes/:id` | Полное обновление заметки |
 | `PATCH` | `/notes/:id` | Частичное обновление заметки |
-| `DELETE` | `/notes/:id` | Soft delete заметки |
+| `DELETE` | `/notes/:id` | Soft delete заметки, ответ `204 No Content` |
 
 ## Примеры запросов
 
@@ -173,6 +188,12 @@ curl -X POST http://localhost:4200/auth/reset-password \
   -d "{\"token\":\"RESET_TOKEN\",\"password\":\"newpassword\"}"
 ```
 
+### OAuth через Yandex
+
+```bash
+curl -i http://localhost:4200/auth/oauth/yandex
+```
+
 ## Структура проекта
 
 ```text
@@ -181,10 +202,14 @@ curl -X POST http://localhost:4200/auth/reset-password \
 │   ├── .env.example
 │   ├── docker-compose.yml
 │   └── Dockerfile
+├── docs/
+│   ├── swagger.json
+│   └── swagger.yaml
 ├── internal/
 │   ├── apperrors/
 │   ├── config/
 │   ├── database/
+│   ├── httpapi/
 │   ├── notes/
 │   │   ├── handler/
 │   │   ├── models/
@@ -226,6 +251,7 @@ curl -X POST http://localhost:4200/auth/reset-password \
 
 - `id`
 - `user_id`
+- `type`
 - `token_hash`
 - `expires_at`
 - `revoked`
@@ -259,3 +285,9 @@ curl -X POST http://localhost:4200/auth/reset-password \
 - `404 Not Found` — ресурс не найден
 - `409 Conflict` — пользователь с таким email уже существует
 - `500 Internal Server Error` — внутренняя ошибка сервера
+
+## Ограничения текущей реализации
+
+- Основной runtime использует HttpOnly cookies для `access_token` и `refresh_token`; Bearer-схема в Swagger нужна в первую очередь для ручного тестирования.
+- OAuth-маршруты параметризованы как `/auth/oauth/:provider`, но обработчик сейчас принимает только `yandex`.
+- Поле `vk_id` и связанные структуры в моделях уже есть, но полноценный VK OAuth flow не реализован.

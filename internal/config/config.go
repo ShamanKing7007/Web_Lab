@@ -4,9 +4,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type Config struct {
+	AppEnv           string
+	SwaggerEnabled   bool
 	DBHost           string
 	DBPort           string
 	DBUser           string
@@ -15,10 +20,16 @@ type Config struct {
 	Port             string
 	JWTAccessSecret  string
 	JWTRefreshSecret string
+	JWTAccessTTL     time.Duration
+	JWTRefreshTTL    time.Duration
 }
 
 func Load() *Config {
+	appEnv := resolveAppEnv()
+
 	cfg := &Config{
+		AppEnv:           appEnv,
+		SwaggerEnabled:   resolveSwaggerEnabled(appEnv),
 		DBHost:           getEnvOrDefault("DB_HOST", "localhost"),
 		DBPort:           getEnvOrDefault("DB_PORT", "5432"),
 		DBUser:           getEnvOrDefault("DB_USER", ""),
@@ -27,9 +38,10 @@ func Load() *Config {
 		Port:             getEnvOrDefault("PORT", "4200"),
 		JWTAccessSecret:  os.Getenv("JWT_ACCESS_SECRET"),
 		JWTRefreshSecret: os.Getenv("JWT_REFRESH_SECRET"),
+		JWTAccessTTL:     mustParseDurationEnv("JWT_ACCESS_EXPIRATION", "15m"),
+		JWTRefreshTTL:    mustParseDurationEnv("JWT_REFRESH_EXPIRATION", "7d"),
 	}
 
-	// Обязательные параметры
 	if cfg.DBUser == "" {
 		log.Fatal("DB_USER environment variable is required")
 	}
@@ -46,14 +58,62 @@ func Load() *Config {
 	return cfg
 }
 
+func mustParseDurationEnv(key, defaultVal string) time.Duration {
+	raw := getEnvOrDefault(key, defaultVal)
+	duration, err := parseDurationWithDays(raw)
+	if err != nil {
+		log.Fatalf("%s has invalid duration %q: %v", key, raw, err)
+	}
+
+	return duration
+}
+
+func parseDurationWithDays(value string) (time.Duration, error) {
+	if strings.HasSuffix(value, "d") {
+		daysPart := strings.TrimSuffix(value, "d")
+		days, err := strconv.Atoi(daysPart)
+		if err != nil {
+			return 0, fmt.Errorf("invalid day count")
+		}
+
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+
+	return time.ParseDuration(value)
+}
+
+func resolveAppEnv() string {
+	if value := os.Getenv("APP_ENV"); value != "" {
+		return strings.ToLower(value)
+	}
+	if value := os.Getenv("NODE_ENV"); value != "" {
+		return strings.ToLower(value)
+	}
+
+	return "development"
+}
+
+func resolveSwaggerEnabled(appEnv string) bool {
+	if raw := os.Getenv("SWAGGER_ENABLED"); raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			log.Fatalf("SWAGGER_ENABLED has invalid boolean value %q", raw)
+		}
+
+		return enabled
+	}
+
+	return appEnv != "production"
+}
+
 func getEnvOrDefault(key, defaultVal string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
 	}
+
 	return defaultVal
 }
 
-// DSN — формат для GORM
 func (c *Config) DSN() string {
 	return fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",

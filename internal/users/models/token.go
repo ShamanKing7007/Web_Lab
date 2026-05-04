@@ -10,6 +10,7 @@ import (
 type Token struct {
 	ID        uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
 	UserID    uuid.UUID      `gorm:"type:uuid;not null;index" json:"-"`
+	Type      string         `gorm:"size:20;not null;index" json:"-"`
 	TokenHash string         `gorm:"size:255;not null;index" json:"-"`
 	ExpiresAt time.Time      `gorm:"not null" json:"-"`
 	Revoked   bool           `gorm:"default:false" json:"-"`

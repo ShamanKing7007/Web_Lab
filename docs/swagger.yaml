@@ -1,0 +1,731 @@
+basePath: /
+definitions:
+  dto.ForgotPasswordRequest:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+    required:
+    - email
+    type: object
+  dto.LoginDTO:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+      password:
+        example: mypassword
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  dto.RegisterDTO:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+      password:
+        example: mypassword
+        minLength: 4
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  dto.ResetPasswordRequest:
+    properties:
+      password:
+        example: newpassword123
+        minLength: 4
+        type: string
+      token:
+        example: abc123def456
+        type: string
+    required:
+    - password
+    - token
+    type: object
+  httpapi.ErrorResponse:
+    properties:
+      error:
+        example: invalid request
+        type: string
+    type: object
+  httpapi.ForgotPasswordResponse:
+    properties:
+      message:
+        example: if email exists, reset link sent
+        type: string
+      reset_token:
+        example: 9f6f82d3d2d64f8d9ff44f3d0f4fb7fd
+        type: string
+    type: object
+  httpapi.MessageResponse:
+    properties:
+      message:
+        example: operation completed
+        type: string
+    type: object
+  httpapi.OAuthInitResponse:
+    properties:
+      authorization_url:
+        example: https://oauth.yandex.ru/authorize?response_type=code&client_id=your_client_id
+        type: string
+      message:
+        example: open authorization_url in browser to continue OAuth flow
+        type: string
+    type: object
+  httpapi.RegisterResponse:
+    properties:
+      message:
+        example: user registered
+        type: string
+      user:
+        $ref: '#/definitions/models.UserResponse'
+    type: object
+  models.UserResponse:
+    description: Пользовательская информация для API ответов
+    properties:
+      created_at:
+        example: "2024-01-01T12:00:00Z"
+        type: string
+      email:
+        example: user@example.com
+        type: string
+      id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      updated_at:
+        example: "2024-01-01T12:00:00Z"
+        type: string
+    type: object
+  service.CreateNoteDTO:
+    properties:
+      content:
+        example: Текст заметки
+        type: string
+      title:
+        example: Первая заметка
+        maxLength: 200
+        minLength: 1
+        type: string
+    required:
+    - title
+    type: object
+  service.NoteResponse:
+    properties:
+      content:
+        example: Текст заметки
+        type: string
+      created_at:
+        example: "2026-05-02T12:00:00Z"
+        type: string
+      id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      title:
+        example: Первая заметка
+        type: string
+      updated_at:
+        example: "2026-05-02T12:10:00Z"
+        type: string
+    type: object
+  service.NotesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/service.NoteResponse'
+        type: array
+      meta:
+        $ref: '#/definitions/service.PaginationMeta'
+    type: object
+  service.PaginationMeta:
+    properties:
+      limit:
+        example: 10
+        type: integer
+      page:
+        example: 1
+        type: integer
+      total:
+        example: 10
+        type: integer
+      total_pages:
+        example: 1
+        type: integer
+    type: object
+  service.UpdateNoteDTO:
+    properties:
+      content:
+        example: Обновленный текст
+        type: string
+      title:
+        example: Обновленная заметка
+        maxLength: 200
+        minLength: 1
+        type: string
+    type: object
+host: localhost:4200
+info:
+  contact:
+    email: support@weblab.com
+    name: API Support
+  description: |-
+    REST API для заметок с JWT-аутентификацией, refresh-сессиями и OAuth через Yandex.
+    Основной runtime использует HttpOnly cookies, а схема BearerAuth добавлена в Swagger UI для ручного тестирования защищенных методов.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Web Labs API
+  version: "1.0"
+paths:
+  /auth/forgot-password:
+    post:
+      consumes:
+      - application/json
+      description: Создает токен сброса пароля для указанного email
+      parameters:
+      - description: Email пользователя
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.ForgotPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Токен сброса создан
+          schema:
+            $ref: '#/definitions/httpapi.ForgotPasswordResponse'
+        "400":
+          description: Неверный формат запроса
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Ошибка создания токена
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: Запрос сброса пароля
+      tags:
+      - auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Аутентифицирует пользователя и устанавливает access_token и refresh_token
+        в HttpOnly cookies
+      parameters:
+      - description: Учетные данные
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.LoginDTO'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешный вход
+          schema:
+            $ref: '#/definitions/httpapi.MessageResponse'
+        "400":
+          description: Неверный формат запроса
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Неверный email или пароль
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: Вход пользователя
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      description: Отзывает текущие access/refresh токены и очищает cookies
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешный выход
+          schema:
+            $ref: '#/definitions/httpapi.MessageResponse'
+        "401":
+          description: Не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Ошибка выхода
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Выход
+      tags:
+      - auth
+  /auth/logout-all:
+    post:
+      description: Отзывает все сохраненные токены пользователя и очищает cookies
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Выход со всех устройств выполнен
+          schema:
+            $ref: '#/definitions/httpapi.MessageResponse'
+        "401":
+          description: Не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Ошибка выхода
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Выход со всех устройств
+      tags:
+      - auth
+  /auth/oauth/{provider}:
+    get:
+      description: При обычном открытии в браузере делает redirect на страницу
+        авторизации OAuth-провайдера. Для Swagger UI и других fetch-клиентов
+        возвращает URL авторизации в JSON.
+      parameters:
+      - description: OAuth-провайдер
+        enum:
+        - yandex
+        in: path
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: URL авторизации для Swagger UI и fetch-клиентов
+          schema:
+            $ref: '#/definitions/httpapi.OAuthInitResponse'
+        "302":
+          description: Редирект на страницу провайдера
+          schema:
+            type: string
+        "400":
+          description: Неподдерживаемый провайдер
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Ошибка генерации state
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: OAuth авторизация
+      tags:
+      - oauth
+  /auth/oauth/{provider}/callback:
+    get:
+      description: Проверяет state, получает данные пользователя у OAuth-провайдера
+        и выдает локальные cookies
+      parameters:
+      - description: OAuth-провайдер
+        enum:
+        - yandex
+        in: path
+        name: provider
+        required: true
+        type: string
+      - description: Код авторизации
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: Параметр защиты от CSRF
+        in: query
+        name: state
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Редирект после успешной авторизации
+          schema:
+            type: string
+        "400":
+          description: Отсутствует code или state
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "403":
+          description: Неверный state
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "502":
+          description: Ошибка получения данных от провайдера
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: OAuth callback
+      tags:
+      - oauth
+  /auth/refresh:
+    post:
+      description: Обновляет пару access/refresh токенов по refresh_token из cookie
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Токены обновлены
+          schema:
+            $ref: '#/definitions/httpapi.MessageResponse'
+        "401":
+          description: Отсутствует или неверный refresh токен
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: Обновление токенов
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Создает нового пользователя и возвращает его публичный профиль
+      parameters:
+      - description: Данные для регистрации
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.RegisterDTO'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Пользователь успешно зарегистрирован
+          schema:
+            $ref: '#/definitions/httpapi.RegisterResponse'
+        "400":
+          description: Неверный формат запроса
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "409":
+          description: Email уже существует
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: Регистрация пользователя
+      tags:
+      - auth
+  /auth/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: Устанавливает новый пароль по валидному токену сброса
+      parameters:
+      - description: Токен сброса и новый пароль
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.ResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Пароль успешно сброшен
+          schema:
+            $ref: '#/definitions/httpapi.MessageResponse'
+        "400":
+          description: Неверный формат запроса или токен
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: Сброс пароля
+      tags:
+      - auth
+  /auth/whoami:
+    get:
+      description: Возвращает публичный профиль авторизованного пользователя
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Профиль пользователя
+          schema:
+            $ref: '#/definitions/models.UserResponse'
+        "401":
+          description: Не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Пользователь не найден
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Информация о себе
+      tags:
+      - auth
+  /notes:
+    get:
+      description: Возвращает список заметок текущего пользователя с пагинацией
+      parameters:
+      - default: 1
+        description: Номер страницы
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 10
+        description: Размер страницы
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список заметок
+          schema:
+            $ref: '#/definitions/service.NotesResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Список заметок
+      tags:
+      - notes
+    post:
+      consumes:
+      - application/json
+      description: Создает новую заметку, принадлежащую авторизованному пользователю
+      parameters:
+      - description: Данные заметки
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/service.CreateNoteDTO'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Заметка создана
+          schema:
+            $ref: '#/definitions/service.NoteResponse'
+        "400":
+          description: Некорректные входные данные
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Создать заметку
+      tags:
+      - notes
+  /notes/{id}:
+    delete:
+      description: Помечает заметку как удаленную, не удаляя запись физически из базы
+      parameters:
+      - description: UUID заметки
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Заметка удалена
+        "400":
+          description: Некорректный ID
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "403":
+          description: Доступ к чужой заметке запрещен
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Заметка не найдена
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Удалить заметку
+      tags:
+      - notes
+    get:
+      description: Возвращает заметку по идентификатору, если она принадлежит текущему
+        пользователю
+      parameters:
+      - description: UUID заметки
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заметка найдена
+          schema:
+            $ref: '#/definitions/service.NoteResponse'
+        "400":
+          description: Некорректный ID
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "403":
+          description: Доступ к чужой заметке запрещен
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Заметка не найдена
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Получить заметку
+      tags:
+      - notes
+    patch:
+      consumes:
+      - application/json
+      description: Частично обновляет поля заметки текущего пользователя
+      parameters:
+      - description: UUID заметки
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Изменяемые поля заметки
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/service.UpdateNoteDTO'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заметка обновлена
+          schema:
+            $ref: '#/definitions/service.NoteResponse'
+        "400":
+          description: Некорректные входные данные
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "403":
+          description: Доступ к чужой заметке запрещен
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Заметка не найдена
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Частично обновить заметку
+      tags:
+      - notes
+    put:
+      consumes:
+      - application/json
+      description: Полностью заменяет данные заметки текущего пользователя
+      parameters:
+      - description: UUID заметки
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Новые данные заметки
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/service.UpdateNoteDTO'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заметка обновлена
+          schema:
+            $ref: '#/definitions/service.NoteResponse'
+        "400":
+          description: Некорректные входные данные
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "403":
+          description: Доступ к чужой заметке запрещен
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Заметка не найдена
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Полностью обновить заметку
+      tags:
+      - notes
+schemes:
+- http
+securityDefinitions:
+  BearerAuth:
+    description: Введите access token в формате "Bearer {token}". В приложении токен
+      обычно передается через HttpOnly cookie access_token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

@@ -3,13 +3,13 @@ package middleware
 import (
 	"net/http"
 
-	"Web_lab/internal/users/crypto"
-
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware — проверка JWT из cookie
-func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
+type AccessTokenValidator func(token string) (string, error)
+
+// AuthMiddleware проверяет access token из cookie и загружает user_id в контекст.
+func AuthMiddleware(validate AccessTokenValidator) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cookie, err := c.Cookie("access_token")
 		if err != nil {
@@ -17,13 +17,13 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := crypto.ParseToken(cookie, jwtSecret)
+		userID, err := validate(cookie)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
 		}
 
-		ctx := SetUserID(c.Request.Context(), claims.UserID)
+		ctx := SetUserID(c.Request.Context(), userID)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

@@ -10,9 +10,8 @@ import (
 func SetupAuthRoutes(
 	router *gin.Engine,
 	authHandler *handler.AuthHandler,
-	jwtAccessSecret string,
 ) {
-	authMiddleware := authHandler.CreateAuthMiddleware(jwtAccessSecret)
+	authMiddleware := authHandler.CreateAuthMiddleware()
 
 	// Публичные роуты
 	auth := router.Group("/auth")

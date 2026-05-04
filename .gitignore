@@ -1,17 +1,26 @@
 # Бинарные файлы Go
 main
 main.exe
+app
+app.exe
 *.exe
+*.out
 
 # Зависимости Go
 vendor/
 
 # Переменные окружения
 .env
+deploy/.env
 
 # Docker volumes
 *_data/
 *_pgadmin/
+
+# Go cache / build artifacts
+.gocache/
+bin/
+dist/
 
 # IDE
 .idea/

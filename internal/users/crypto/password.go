@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 
@@ -11,8 +12,9 @@ import (
 // HashPassword генерирует уникальную соль и хеширует пароль
 func HashPassword(password string) (hash string, salt string, err error) {
 	salt = generateSalt()
+	normalized := normalizeSecret(salt + password)
 
-	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(salt+password), bcrypt.DefaultCost)
+	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(normalized), bcrypt.DefaultCost)
 	if err != nil {
 		return "", "", err
 	}
@@ -22,13 +24,20 @@ func HashPassword(password string) (hash string, salt string, err error) {
 
 // CheckPassword проверяет соответствие пароля хешу с учётом соли
 func CheckPassword(password, hash, salt string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(salt+password))
-	return err == nil
+	normalized := normalizeSecret(salt + password)
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(normalized)) == nil {
+		return true
+	}
+
+	// Совместимость со старыми записями, созданными до нормализации длинных секретов.
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(salt+password)) == nil
 }
 
 // HashOpaqueToken хеширует токен без внешней соли.
 func HashOpaqueToken(token string) (string, error) {
-	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
+	normalized := normalizeOpaqueToken(token)
+
+	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(normalized), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
 	}
@@ -38,7 +47,8 @@ func HashOpaqueToken(token string) (string, error) {
 
 // CheckOpaqueToken сравнивает токен с bcrypt-хешем.
 func CheckOpaqueToken(token, hash string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(token)) == nil
+	normalized := normalizeOpaqueToken(token)
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(normalized)) == nil
 }
 
 // GenerateOpaqueToken генерирует случайный токен для одноразовых сценариев.
@@ -56,4 +66,14 @@ func generateSalt() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("%x", b)
+}
+
+func normalizeOpaqueToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func normalizeSecret(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }

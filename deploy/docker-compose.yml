@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16
@@ -16,7 +14,7 @@ services:
     networks:
       - web_labs_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-nix}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-nix} -d ${DB_NAME:-Web_Labs}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -34,8 +32,12 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       PORT: 4200
+      APP_ENV: ${APP_ENV:-development}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRATION: ${JWT_ACCESS_EXPIRATION:-15m}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-7d}
       CLIENT_ID: ${CLIENT_ID}
       CLIENT_SECRET: ${CLIENT_SECRET}
       CALLBACK_URL: ${CALLBACK_URL}
@@ -47,7 +49,8 @@ services:
         condition: service_healthy
     networks:
       - web_labs_network
-
+    volumes:
+      - ./docs:/app/docs
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: web_labs_pgadmin

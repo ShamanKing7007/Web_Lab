@@ -1,6 +1,8 @@
 package service
 
 import (
+	"time"
+
 	"Web_lab/internal/apperrors"
 	"Web_lab/internal/notes/models"
 	"Web_lab/internal/notes/repository"
@@ -9,13 +11,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// Интерфейс сервиса для тестирования
+// NoteService бизнес-логика заметок.
 type NoteService interface {
-	Create(dto CreateNoteDTO, userID uuid.UUID) (*models.Note, error)
-	GetByID(id uuid.UUID, userID uuid.UUID) (*models.Note, error)
+	Create(dto CreateNoteDTO, userID uuid.UUID) (*NoteResponse, error)
+	GetByID(id uuid.UUID, userID uuid.UUID) (*NoteResponse, error)
 	GetAll(userID uuid.UUID, page, limit int) (*NotesResponse, error)
-	Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*models.Note, error)
-	Patch(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*models.Note, error)
+	Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*NoteResponse, error)
+	Patch(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*NoteResponse, error)
 	Delete(id uuid.UUID, userID uuid.UUID) error
 }
 
@@ -27,34 +29,61 @@ func NewNoteService(repo repository.NoteRepository) NoteService {
 	return &NoteServiceImpl{repo: repo}
 }
 
-// DTO для создания заметки
+// CreateNoteDTO DTO для создания заметки.
 type CreateNoteDTO struct {
-	Title   string `json:"title" binding:"required,min=1,max=200"`
-	Content string `json:"content" binding:"omitempty"`
+	Title   string `json:"title" binding:"required,min=1,max=200" example:"Первая заметка"`
+	Content string `json:"content" binding:"omitempty" example:"Текст заметки"`
 }
 
-// DTO для обновления заметки
+// UpdateNoteDTO DTO для обновления заметки.
 type UpdateNoteDTO struct {
-	Title   string `json:"title" binding:"omitempty,min=1,max=200"`
-	Content string `json:"content" binding:"omitempty"`
+	Title   string `json:"title" binding:"omitempty,min=1,max=200" example:"Обновленная заметка"`
+	Content string `json:"content" binding:"omitempty" example:"Обновленный текст"`
 }
 
-// Мета для пагинации
+// NoteResponse публичное представление заметки.
+type NoteResponse struct {
+	ID        uuid.UUID `json:"id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Title     string    `json:"title" example:"Первая заметка"`
+	Content   string    `json:"content" example:"Текст заметки"`
+	CreatedAt string    `json:"created_at" example:"2026-05-02T12:00:00Z"`
+	UpdatedAt string    `json:"updated_at" example:"2026-05-02T12:10:00Z"`
+}
+
+// PaginationMeta мета-информация пагинации.
 type PaginationMeta struct {
-	Total      int64 `json:"total"`
-	Page       int   `json:"page"`
-	Limit      int   `json:"limit"`
-	TotalPages int   `json:"total_pages"`
+	Total      int64 `json:"total" example:"10"`
+	Page       int   `json:"page" example:"1"`
+	Limit      int   `json:"limit" example:"10"`
+	TotalPages int   `json:"total_pages" example:"1"`
 }
 
-// Ответ со списком заметок
+// NotesResponse ответ со списком заметок.
 type NotesResponse struct {
-	Data []models.Note  `json:"data"`
+	Data []NoteResponse `json:"data"`
 	Meta PaginationMeta `json:"meta"`
 }
 
-// Создание заметки (привязка к пользователю)
-func (s *NoteServiceImpl) Create(dto CreateNoteDTO, userID uuid.UUID) (*models.Note, error) {
+func toNoteResponse(note *models.Note) *NoteResponse {
+	return &NoteResponse{
+		ID:        note.ID,
+		Title:     note.Title,
+		Content:   note.Content,
+		CreatedAt: note.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: note.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func toNoteResponses(notes []models.Note) []NoteResponse {
+	responses := make([]NoteResponse, 0, len(notes))
+	for i := range notes {
+		responses = append(responses, *toNoteResponse(&notes[i]))
+	}
+
+	return responses
+}
+
+func (s *NoteServiceImpl) Create(dto CreateNoteDTO, userID uuid.UUID) (*NoteResponse, error) {
 	if !validator.IsValidNoteTitle(dto.Title) {
 		return nil, apperrors.ErrValidation
 	}
@@ -66,16 +95,14 @@ func (s *NoteServiceImpl) Create(dto CreateNoteDTO, userID uuid.UUID) (*models.N
 		Content: dto.Content,
 	}
 
-	err := s.repo.Create(note)
-	if err != nil {
+	if err := s.repo.Create(note); err != nil {
 		return nil, err
 	}
 
-	return note, nil
+	return toNoteResponse(note), nil
 }
 
-// Поиск по ID (с проверкой владения)
-func (s *NoteServiceImpl) GetByID(id uuid.UUID, userID uuid.UUID) (*models.Note, error) {
+func (s *NoteServiceImpl) GetByID(id uuid.UUID, userID uuid.UUID) (*NoteResponse, error) {
 	note, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, apperrors.ErrNotFound
@@ -85,10 +112,9 @@ func (s *NoteServiceImpl) GetByID(id uuid.UUID, userID uuid.UUID) (*models.Note,
 		return nil, apperrors.ErrForbidden
 	}
 
-	return note, nil
+	return toNoteResponse(note), nil
 }
 
-// Получить все заметки пользователя с пагинацией
 func (s *NoteServiceImpl) GetAll(userID uuid.UUID, page, limit int) (*NotesResponse, error) {
 	page, limit = validator.ValidatePagination(page, limit)
 	offset := (page - 1) * limit
@@ -104,7 +130,7 @@ func (s *NoteServiceImpl) GetAll(userID uuid.UUID, page, limit int) (*NotesRespo
 	}
 
 	return &NotesResponse{
-		Data: notes,
+		Data: toNoteResponses(notes),
 		Meta: PaginationMeta{
 			Total:      total,
 			Page:       page,
@@ -114,8 +140,7 @@ func (s *NoteServiceImpl) GetAll(userID uuid.UUID, page, limit int) (*NotesRespo
 	}, nil
 }
 
-// Полное обновление заметки (PUT) — title обязателен + проверка владения
-func (s *NoteServiceImpl) Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*models.Note, error) {
+func (s *NoteServiceImpl) Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*NoteResponse, error) {
 	note, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, apperrors.ErrNotFound
@@ -132,16 +157,14 @@ func (s *NoteServiceImpl) Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UU
 	note.Title = dto.Title
 	note.Content = dto.Content
 
-	err = s.repo.Update(note)
-	if err != nil {
+	if err := s.repo.Update(note); err != nil {
 		return nil, err
 	}
 
-	return note, nil
+	return toNoteResponse(note), nil
 }
 
-// Частичное обновление заметки (PATCH) + проверка владения
-func (s *NoteServiceImpl) Patch(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*models.Note, error) {
+func (s *NoteServiceImpl) Patch(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*NoteResponse, error) {
 	note, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, apperrors.ErrNotFound
@@ -162,15 +185,13 @@ func (s *NoteServiceImpl) Patch(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUI
 		note.Content = dto.Content
 	}
 
-	err = s.repo.Update(note)
-	if err != nil {
+	if err := s.repo.Update(note); err != nil {
 		return nil, err
 	}
 
-	return note, nil
+	return toNoteResponse(note), nil
 }
 
-// Soft delete — с проверкой владения
 func (s *NoteServiceImpl) Delete(id uuid.UUID, userID uuid.UUID) error {
 	note, err := s.repo.FindByID(id)
 	if err != nil {
@@ -188,5 +209,6 @@ func (s *NoteServiceImpl) Delete(id uuid.UUID, userID uuid.UUID) error {
 	if result.Error != nil {
 		return result.Error
 	}
+
 	return nil
 }

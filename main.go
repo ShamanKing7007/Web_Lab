@@ -17,20 +17,39 @@ import (
 	userRepoPkg "Web_lab/internal/users/repository"
 	userRoutes "Web_lab/internal/users/routes"
 	userService "Web_lab/internal/users/service"
+
+	_ "Web_lab/docs"
+
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
+// @title           Web Labs API
+// @version         1.0
+// @description     REST API для заметок с JWT-аутентификацией, refresh-сессиями и OAuth через Yandex.
+// @description     Основной runtime использует HttpOnly cookies, а схема BearerAuth добавлена в Swagger UI для ручного тестирования защищенных методов.
+// @termsOfService  http://swagger.io/terms/
+// @contact.name    API Support
+// @contact.email   support@weblab.com
+// @license.name    MIT
+// @license.url     https://opensource.org/licenses/MIT
+// @host            localhost:4200
+// @BasePath        /
+// @schemes         http
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Введите access token в формате "Bearer {token}". В приложении токен обычно передается через HttpOnly cookie access_token.
+
 func main() {
-	// Загрузка конфигурации
 	cfg := config.Load()
 
-	// Подключение к БД
 	db, err := database.NewDatabase(cfg.DSN())
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// Автоматическая миграция через GORM
 	err = db.DB.AutoMigrate(
 		&noteModels.Note{},
 		&userModels.User{},
@@ -41,12 +60,10 @@ func main() {
 	}
 	log.Println("Migrations completed successfully")
 
-	// === NOTES слои ===
 	noteRepo := repository.NewNoteRepository(db)
 	noteService := service.NewNoteService(noteRepo)
 	noteHandler := handler.NewNoteHandler(noteService)
 
-	// === USERS слои ===
 	userRepo := userRepoPkg.NewUserRepository(db.DB)
 	tokenRepo := userRepoPkg.NewTokenRepository(db.DB)
 
@@ -55,21 +72,27 @@ func main() {
 		tokenRepo,
 		cfg.JWTAccessSecret,
 		cfg.JWTRefreshSecret,
+		cfg.JWTAccessTTL,
+		cfg.JWTRefreshTTL,
 	)
 
 	oauthConfig := oauth.LoadOAuthConfig()
 	authHandler := userHandler.NewAuthHandler(authService, userRepo, oauthConfig)
 
-	// === Роутер ===
-	authMiddleware := middleware.AuthMiddleware(cfg.JWTAccessSecret)
+	authMiddleware := middleware.AuthMiddleware(authService.ValidateAccessToken)
 	router := routes.NewNoteRouter(noteHandler, authMiddleware)
 	engine := router.Engine
 
-	// Auth роуты
-	userRoutes.SetupAuthRoutes(engine, authHandler, cfg.JWTAccessSecret)
+	if cfg.SwaggerEnabled {
+		engine.GET("/api/docs/*any", ginSwagger.WrapHandler(
+			swaggerFiles.Handler,
+			ginSwagger.PersistAuthorization(true),
+		))
+	}
 
-	// Запуск сервера
-	log.Printf("Server starting on port %s", cfg.Port)
+	userRoutes.SetupAuthRoutes(engine, authHandler)
+
+	log.Printf("Server starting on port %s (env=%s, swagger=%t)", cfg.Port, cfg.AppEnv, cfg.SwaggerEnabled)
 	if err := engine.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}

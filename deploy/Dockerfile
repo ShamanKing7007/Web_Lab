@@ -5,6 +5,9 @@ RUN apk add --no-cache git
 
 WORKDIR /app
 
+# Устанавливаем swag
+RUN go install github.com/swaggo/swag/cmd/swag@latest
+
 # Копируем файлы модуля
 COPY go.mod go.sum ./
 
@@ -13,6 +16,9 @@ RUN go mod download
 
 # Копируем исходный код и миграции
 COPY . .
+
+# Генерируем Swagger документацию
+RUN swag init -g main.go --output docs
 
 # Собираем приложение
 RUN go build -o main .

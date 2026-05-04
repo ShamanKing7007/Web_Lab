@@ -13,11 +13,18 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	accessTokenType  = "access"
+	refreshTokenType = "refresh"
+)
+
 type AuthService struct {
 	userRepo         *repository.UserRepository
 	tokenRepo        *repository.TokenRepository
 	jwtAccessSecret  string
 	jwtRefreshSecret string
+	jwtAccessTTL     time.Duration
+	jwtRefreshTTL    time.Duration
 }
 
 func NewAuthService(
@@ -25,16 +32,19 @@ func NewAuthService(
 	tokenRepo *repository.TokenRepository,
 	jwtAccessSecret string,
 	jwtRefreshSecret string,
+	jwtAccessTTL time.Duration,
+	jwtRefreshTTL time.Duration,
 ) *AuthService {
 	return &AuthService{
 		userRepo:         userRepo,
 		tokenRepo:        tokenRepo,
 		jwtAccessSecret:  jwtAccessSecret,
 		jwtRefreshSecret: jwtRefreshSecret,
+		jwtAccessTTL:     jwtAccessTTL,
+		jwtRefreshTTL:    jwtRefreshTTL,
 	}
 }
 
-// Register — регистрация нового пользователя
 func (s *AuthService) Register(dto dto.RegisterDTO) (*models.User, error) {
 	_, err := s.userRepo.FindByEmail(dto.Email)
 	if err == nil {
@@ -56,14 +66,13 @@ func (s *AuthService) Register(dto dto.RegisterDTO) (*models.User, error) {
 		Salt:         salt,
 	}
 
-	err = s.userRepo.Create(user)
-	if err != nil {
+	if err := s.userRepo.Create(user); err != nil {
 		return nil, err
 	}
+
 	return user, nil
 }
 
-// Login — вход, возврат access и refresh токенов
 func (s *AuthService) Login(dto dto.LoginDTO) (string, string, error) {
 	user, err := s.userRepo.FindByEmail(dto.Email)
 	if err != nil {
@@ -74,75 +83,98 @@ func (s *AuthService) Login(dto dto.LoginDTO) (string, string, error) {
 		return "", "", errors.New("invalid credentials")
 	}
 
-	accessToken, err := crypto.GenerateAccessToken(user.ID, s.jwtAccessSecret, 15*time.Minute)
+	accessToken, refreshToken, err := s.CreateTokens(user.ID)
 	if err != nil {
 		return "", "", err
 	}
 
-	refreshToken, err := crypto.GenerateRefreshToken(user.ID, s.jwtRefreshSecret, 7*24*time.Hour)
-	if err != nil {
-		return "", "", err
-	}
-
-	err = s.SaveRefreshToken(user.ID, refreshToken)
-	if err != nil {
+	if err := s.SaveTokenPair(user.ID, accessToken, refreshToken); err != nil {
 		return "", "", err
 	}
 
 	return accessToken, refreshToken, nil
 }
 
-// Whoami — получить пользователя по ID
 func (s *AuthService) Whoami(userID uuid.UUID) (*models.User, error) {
 	return s.userRepo.FindByID(userID)
 }
 
-// Logout — отозвать refresh-токен (по ID пользователя, через middleware)
-func (s *AuthService) Logout(userID uuid.UUID, refreshToken string) error {
-	tokenRecord, err := s.findMatchingRefreshToken(userID, refreshToken)
-	if err != nil {
-		return err
-	}
-
-	return s.tokenRepo.RevokeByID(tokenRecord.ID)
+func (s *AuthService) AccessTokenTTL() time.Duration {
+	return s.jwtAccessTTL
 }
 
-// LogoutAll — отозвать все refresh-токены пользователя
+func (s *AuthService) RefreshTokenTTL() time.Duration {
+	return s.jwtRefreshTTL
+}
+
+func (s *AuthService) ValidateAccessToken(accessToken string) (string, error) {
+	claims, err := crypto.ParseToken(accessToken, s.jwtAccessSecret)
+	if err != nil {
+		return "", err
+	}
+
+	userID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := s.findMatchingToken(userID, accessToken, accessTokenType); err != nil {
+		return "", err
+	}
+
+	return userID.String(), nil
+}
+
+func (s *AuthService) Logout(userID uuid.UUID, accessToken, refreshToken string) error {
+	if accessToken != "" {
+		if tokenRecord, err := s.findMatchingToken(userID, accessToken, accessTokenType); err == nil {
+			if err := s.tokenRepo.RevokeByID(tokenRecord.ID); err != nil {
+				return err
+			}
+		}
+	}
+
+	if refreshToken != "" {
+		if tokenRecord, err := s.findMatchingToken(userID, refreshToken, refreshTokenType); err == nil {
+			if err := s.tokenRepo.RevokeByID(tokenRecord.ID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func (s *AuthService) LogoutAll(userID uuid.UUID) error {
 	return s.tokenRepo.RevokeAll(userID)
 }
 
-// CreateTokens генерирует access и refresh токены (для OAuth)
 func (s *AuthService) CreateTokens(userID uuid.UUID) (string, string, error) {
-	accessToken, err := crypto.GenerateAccessToken(userID, s.jwtAccessSecret, 15*time.Minute)
+	accessToken, err := crypto.GenerateAccessToken(userID, s.jwtAccessSecret, s.jwtAccessTTL)
 	if err != nil {
 		return "", "", err
 	}
-	refreshToken, err := crypto.GenerateRefreshToken(userID, s.jwtRefreshSecret, 7*24*time.Hour)
+
+	refreshToken, err := crypto.GenerateRefreshToken(userID, s.jwtRefreshSecret, s.jwtRefreshTTL)
 	if err != nil {
 		return "", "", err
 	}
+
 	return accessToken, refreshToken, nil
 }
 
-// SaveRefreshToken сохраняет хеш refresh-токена в БД
-func (s *AuthService) SaveRefreshToken(userID uuid.UUID, refreshToken string) error {
-	refreshHash, err := crypto.HashOpaqueToken(refreshToken)
-	if err != nil {
+func (s *AuthService) SaveTokenPair(userID uuid.UUID, accessToken, refreshToken string) error {
+	if err := s.saveToken(userID, accessToken, accessTokenType, s.jwtAccessTTL); err != nil {
 		return err
 	}
 
-	tokenRecord := &models.Token{
-		ID:        uuid.New(),
-		UserID:    userID,
-		TokenHash: refreshHash,
-		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
-		Revoked:   false,
+	if err := s.saveToken(userID, refreshToken, refreshTokenType, s.jwtRefreshTTL); err != nil {
+		return err
 	}
-	return s.tokenRepo.Create(tokenRecord)
+
+	return nil
 }
 
-// RefreshTokens — обновление пары токенов
 func (s *AuthService) RefreshTokens(refreshToken string) (string, string, error) {
 	claims, err := crypto.ParseToken(refreshToken, s.jwtRefreshSecret)
 	if err != nil {
@@ -154,7 +186,7 @@ func (s *AuthService) RefreshTokens(refreshToken string) (string, string, error)
 		return "", "", errors.New("invalid user id in token")
 	}
 
-	tokenRecord, err := s.findMatchingRefreshToken(userID, refreshToken)
+	tokenRecord, err := s.findMatchingToken(userID, refreshToken, refreshTokenType)
 	if err != nil {
 		return "", "", errors.New("invalid refresh token")
 	}
@@ -168,14 +200,13 @@ func (s *AuthService) RefreshTokens(refreshToken string) (string, string, error)
 		return "", "", err
 	}
 
-	if err := s.SaveRefreshToken(userID, newRefreshToken); err != nil {
+	if err := s.SaveTokenPair(userID, newAccessToken, newRefreshToken); err != nil {
 		return "", "", err
 	}
 
 	return newAccessToken, newRefreshToken, nil
 }
 
-// ForgotPassword создаёт одноразовый токен сброса пароля.
 func (s *AuthService) ForgotPassword(email string) (string, error) {
 	resetToken, err := crypto.GenerateOpaqueToken()
 	if err != nil {
@@ -203,7 +234,6 @@ func (s *AuthService) ForgotPassword(email string) (string, error) {
 	return resetToken, nil
 }
 
-// ResetPassword меняет пароль по валидному reset-токену.
 func (s *AuthService) ResetPassword(resetToken, newPassword string) error {
 	users, err := s.userRepo.FindUsersWithActiveResetToken()
 	if err != nil {
@@ -239,17 +269,35 @@ func (s *AuthService) ResetPassword(resetToken, newPassword string) error {
 	return s.tokenRepo.RevokeAll(user.ID)
 }
 
-func (s *AuthService) findMatchingRefreshToken(userID uuid.UUID, refreshToken string) (*models.Token, error) {
-	tokens, err := s.tokenRepo.FindActiveByUser(userID)
+func (s *AuthService) saveToken(userID uuid.UUID, rawToken, tokenType string, ttl time.Duration) error {
+	tokenHash, err := crypto.HashOpaqueToken(rawToken)
+	if err != nil {
+		return err
+	}
+
+	tokenRecord := &models.Token{
+		ID:        uuid.New(),
+		UserID:    userID,
+		Type:      tokenType,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(ttl),
+		Revoked:   false,
+	}
+
+	return s.tokenRepo.Create(tokenRecord)
+}
+
+func (s *AuthService) findMatchingToken(userID uuid.UUID, rawToken, tokenType string) (*models.Token, error) {
+	tokens, err := s.tokenRepo.FindActiveByUser(userID, tokenType)
 	if err != nil {
 		return nil, err
 	}
 
 	for i := range tokens {
-		if crypto.CheckOpaqueToken(refreshToken, tokens[i].TokenHash) {
+		if crypto.CheckOpaqueToken(rawToken, tokens[i].TokenHash) {
 			return &tokens[i], nil
 		}
 	}
 
-	return nil, errors.New("refresh token not found")
+	return nil, errors.New("token not found")
 }
