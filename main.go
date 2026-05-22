@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"log"
 
+	"Web_lab/internal/cache"
 	"Web_lab/internal/config"
 	"Web_lab/internal/database"
 	"Web_lab/internal/notes/handler"
@@ -29,9 +31,6 @@ import (
 // @description     REST API для заметок с JWT-аутентификацией, refresh-сессиями и OAuth через Yandex.
 // @description     Основной runtime использует HttpOnly cookies, а схема BearerAuth добавлена в Swagger UI для ручного тестирования защищенных методов.
 // @termsOfService  http://swagger.io/terms/
-// @contact.name    API Support
-// @contact.email   support@weblab.com
-// @license.name    MIT
 // @license.url     https://opensource.org/licenses/MIT
 // @host            localhost:4200
 // @BasePath        /
@@ -43,6 +42,7 @@ import (
 
 func main() {
 	cfg := config.Load()
+	ctx := context.Background()
 
 	db, err := database.NewDatabase(cfg.DSN())
 	if err != nil {
@@ -60,8 +60,17 @@ func main() {
 	}
 	log.Println("Migrations completed successfully")
 
+	cacheService := cache.NewService(ctx, cache.Options{
+		Host:       cfg.RedisHost,
+		Port:       cfg.RedisPort,
+		Password:   cfg.RedisPassword,
+		DB:         cfg.RedisDB,
+		DefaultTTL: cfg.CacheDefaultTTL,
+	})
+	defer cacheService.Close()
+
 	noteRepo := repository.NewNoteRepository(db)
-	noteService := service.NewNoteService(noteRepo)
+	noteService := service.NewNoteService(noteRepo, cacheService, cfg.CacheDefaultTTL)
 	noteHandler := handler.NewNoteHandler(noteService)
 
 	userRepo := userRepoPkg.NewUserRepository(db.DB)
@@ -74,6 +83,8 @@ func main() {
 		cfg.JWTRefreshSecret,
 		cfg.JWTAccessTTL,
 		cfg.JWTRefreshTTL,
+		cacheService,
+		cfg.CacheDefaultTTL,
 	)
 
 	oauthConfig := oauth.LoadOAuthConfig()

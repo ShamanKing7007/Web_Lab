@@ -1,9 +1,13 @@
 package service
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"time"
 
 	"Web_lab/internal/apperrors"
+	"Web_lab/internal/cache"
 	"Web_lab/internal/notes/models"
 	"Web_lab/internal/notes/repository"
 	"Web_lab/internal/notes/validator"
@@ -22,11 +26,17 @@ type NoteService interface {
 }
 
 type NoteServiceImpl struct {
-	repo repository.NoteRepository
+	repo     repository.NoteRepository
+	cache    *cache.Service
+	cacheTTL time.Duration
 }
 
-func NewNoteService(repo repository.NoteRepository) NoteService {
-	return &NoteServiceImpl{repo: repo}
+func NewNoteService(repo repository.NoteRepository, cacheService *cache.Service, cacheTTL time.Duration) NoteService {
+	return &NoteServiceImpl{
+		repo:     repo,
+		cache:    cacheService,
+		cacheTTL: cacheTTL,
+	}
 }
 
 // CreateNoteDTO DTO для создания заметки.
@@ -99,10 +109,22 @@ func (s *NoteServiceImpl) Create(dto CreateNoteDTO, userID uuid.UUID) (*NoteResp
 		return nil, err
 	}
 
+	s.invalidateNoteListCache(userID)
+
 	return toNoteResponse(note), nil
 }
 
 func (s *NoteServiceImpl) GetByID(id uuid.UUID, userID uuid.UUID) (*NoteResponse, error) {
+	ctx := context.Background()
+	key := noteDetailKey(userID, id)
+
+	var cached NoteResponse
+	if ok, err := s.cache.Get(ctx, key, &cached); err == nil && ok {
+		return &cached, nil
+	} else if err != nil {
+		log.Printf("failed to read note cache %s: %v", key, err)
+	}
+
 	note, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, apperrors.ErrNotFound
@@ -112,11 +134,26 @@ func (s *NoteServiceImpl) GetByID(id uuid.UUID, userID uuid.UUID) (*NoteResponse
 		return nil, apperrors.ErrForbidden
 	}
 
-	return toNoteResponse(note), nil
+	response := toNoteResponse(note)
+	if err := s.cache.Set(ctx, key, response, s.cacheTTL); err != nil {
+		log.Printf("failed to write note cache %s: %v", key, err)
+	}
+
+	return response, nil
 }
 
 func (s *NoteServiceImpl) GetAll(userID uuid.UUID, page, limit int) (*NotesResponse, error) {
 	page, limit = validator.ValidatePagination(page, limit)
+	ctx := context.Background()
+	key := noteListKey(userID, page, limit)
+
+	var cached NotesResponse
+	if ok, err := s.cache.Get(ctx, key, &cached); err == nil && ok {
+		return &cached, nil
+	} else if err != nil {
+		log.Printf("failed to read notes list cache %s: %v", key, err)
+	}
+
 	offset := (page - 1) * limit
 
 	notes, total, err := s.repo.FindAllByUser(userID, offset, limit)
@@ -129,7 +166,7 @@ func (s *NoteServiceImpl) GetAll(userID uuid.UUID, page, limit int) (*NotesRespo
 		totalPages++
 	}
 
-	return &NotesResponse{
+	response := &NotesResponse{
 		Data: toNoteResponses(notes),
 		Meta: PaginationMeta{
 			Total:      total,
@@ -137,7 +174,13 @@ func (s *NoteServiceImpl) GetAll(userID uuid.UUID, page, limit int) (*NotesRespo
 			Limit:      limit,
 			TotalPages: totalPages,
 		},
-	}, nil
+	}
+
+	if err := s.cache.Set(ctx, key, response, s.cacheTTL); err != nil {
+		log.Printf("failed to write notes list cache %s: %v", key, err)
+	}
+
+	return response, nil
 }
 
 func (s *NoteServiceImpl) Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUID) (*NoteResponse, error) {
@@ -160,6 +203,9 @@ func (s *NoteServiceImpl) Update(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UU
 	if err := s.repo.Update(note); err != nil {
 		return nil, err
 	}
+
+	s.invalidateNoteCache(userID, id)
+	s.invalidateNoteListCache(userID)
 
 	return toNoteResponse(note), nil
 }
@@ -189,6 +235,9 @@ func (s *NoteServiceImpl) Patch(id uuid.UUID, dto UpdateNoteDTO, userID uuid.UUI
 		return nil, err
 	}
 
+	s.invalidateNoteCache(userID, id)
+	s.invalidateNoteListCache(userID)
+
 	return toNoteResponse(note), nil
 }
 
@@ -210,5 +259,34 @@ func (s *NoteServiceImpl) Delete(id uuid.UUID, userID uuid.UUID) error {
 		return result.Error
 	}
 
+	s.invalidateNoteCache(userID, id)
+	s.invalidateNoteListCache(userID)
+
 	return nil
+}
+
+func (s *NoteServiceImpl) invalidateNoteCache(userID, noteID uuid.UUID) {
+	key := noteDetailKey(userID, noteID)
+	if err := s.cache.Del(context.Background(), key); err != nil {
+		log.Printf("failed to invalidate note cache %s: %v", key, err)
+	}
+}
+
+func (s *NoteServiceImpl) invalidateNoteListCache(userID uuid.UUID) {
+	pattern := noteListPattern(userID)
+	if err := s.cache.DelByPattern(context.Background(), pattern); err != nil {
+		log.Printf("failed to invalidate notes list cache %s: %v", pattern, err)
+	}
+}
+
+func noteListKey(userID uuid.UUID, page, limit int) string {
+	return fmt.Sprintf("wp:notes:user:%s:list:page:%d:limit:%d", userID, page, limit)
+}
+
+func noteListPattern(userID uuid.UUID) string {
+	return fmt.Sprintf("wp:notes:user:%s:list:*", userID)
+}
+
+func noteDetailKey(userID, noteID uuid.UUID) string {
+	return fmt.Sprintf("wp:notes:user:%s:detail:%s", userID, noteID)
 }

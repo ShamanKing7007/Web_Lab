@@ -18,6 +18,11 @@ type Config struct {
 	DBPassword       string
 	DBName           string
 	Port             string
+	RedisHost        string
+	RedisPort        string
+	RedisPassword    string
+	RedisDB          int
+	CacheDefaultTTL  time.Duration
 	JWTAccessSecret  string
 	JWTRefreshSecret string
 	JWTAccessTTL     time.Duration
@@ -36,6 +41,11 @@ func Load() *Config {
 		DBPassword:       os.Getenv("DB_PASSWORD"),
 		DBName:           getEnvOrDefault("DB_NAME", "Web_Labs"),
 		Port:             getEnvOrDefault("PORT", "4200"),
+		RedisHost:        getEnvOrDefault("REDIS_HOST", "localhost"),
+		RedisPort:        getEnvOrDefault("REDIS_PORT", "6379"),
+		RedisPassword:    os.Getenv("REDIS_PASSWORD"),
+		RedisDB:          mustParseIntEnv("REDIS_DB", "0"),
+		CacheDefaultTTL:  mustParseCacheTTL("CACHE_TTL_DEFAULT", "300"),
 		JWTAccessSecret:  os.Getenv("JWT_ACCESS_SECRET"),
 		JWTRefreshSecret: os.Getenv("JWT_REFRESH_SECRET"),
 		JWTAccessTTL:     mustParseDurationEnv("JWT_ACCESS_EXPIRATION", "15m"),
@@ -54,8 +64,35 @@ func Load() *Config {
 	if cfg.JWTRefreshSecret == "" {
 		log.Fatal("JWT_REFRESH_SECRET environment variable is required")
 	}
+	if cfg.RedisPassword == "" {
+		log.Fatal("REDIS_PASSWORD environment variable is required")
+	}
 
 	return cfg
+}
+
+func mustParseIntEnv(key, defaultVal string) int {
+	raw := getEnvOrDefault(key, defaultVal)
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		log.Fatalf("%s has invalid integer value %q", key, raw)
+	}
+
+	return value
+}
+
+func mustParseCacheTTL(key, defaultVal string) time.Duration {
+	raw := getEnvOrDefault(key, defaultVal)
+	if seconds, err := strconv.Atoi(raw); err == nil {
+		return time.Duration(seconds) * time.Second
+	}
+
+	duration, err := parseDurationWithDays(raw)
+	if err != nil {
+		log.Fatalf("%s has invalid duration %q: %v", key, raw, err)
+	}
+
+	return duration
 }
 
 func mustParseDurationEnv(key, defaultVal string) time.Duration {

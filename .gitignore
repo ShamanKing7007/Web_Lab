@@ -1,40 +1,50 @@
-# Бинарные файлы Go
+# Go build artifacts
 main
 main.exe
 app
 app.exe
 *.exe
+*.dll
+*.so
+*.dylib
+*.test
 *.out
-
-# Зависимости Go
-vendor/
-
-# Переменные окружения
-.env
-deploy/.env
-
-# Docker volumes
-*_data/
-*_pgadmin/
-
-# Go cache / build artifacts
-.gocache/
 bin/
 dist/
 
-# IDE
+# Go workspace/cache artifacts
+vendor/
+.gocache/
+coverage.out
+coverage.html
+
+# Environment files with secrets
+.env
+.env.*
+!.env.example
+deploy/.env
+deploy/.env.*
+!deploy/.env.example
+
+# Docker/local volumes and generated data
+*_data/
+*_pgadmin/
+*_redis/
+
+# IDE/editor files
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Logs
+# Logs and temporary files
 *.log
-
-# Temporary files
 *.tmp
+tmp/
+temp/

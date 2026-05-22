@@ -129,13 +129,12 @@ func (h *AuthHandler) Whoami(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.Whoami(userID)
+	response, err := h.service.Whoami(userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpapi.ErrorResponse{Error: "user not found"})
 		return
 	}
 
-	var response userModels.UserResponse = user.ToResponse()
 	c.JSON(http.StatusOK, response)
 }
 

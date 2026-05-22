@@ -27,7 +27,7 @@ func SetupAuthRoutes(
 		auth.GET("/oauth/:provider/callback", authHandler.OAuthCallback)
 	}
 
-	// Защищённые роуты (требуют access_token в cookie)
+	// Защищённые роуты
 	protected := router.Group("/auth")
 	protected.Use(authMiddleware)
 	{

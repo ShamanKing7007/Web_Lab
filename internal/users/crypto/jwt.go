@@ -49,6 +49,7 @@ func generateToken(userID uuid.UUID, secret string, expiration time.Duration) (s
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(expiration)),
 			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        uuid.NewString(),
 			Subject:   userID.String(),
 		},
 	}

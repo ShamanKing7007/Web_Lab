@@ -8,6 +8,7 @@ RESTful API для заметок с аутентификацией и авто�
 - Gin
 - GORM
 - PostgreSQL 16
+- Redis 7
 - Docker / Docker Compose
 - JWT (`github.com/golang-jwt/jwt/v5`)
 - bcrypt
@@ -29,6 +30,7 @@ Swagger UI в режиме разработки доступен на `http://lo
 
 Дополнительно:
 - PostgreSQL: `localhost:5432`
+- Redis: `localhost:6379`
 - pgAdmin: `http://localhost:5050`
 
 Остановка:
@@ -48,6 +50,11 @@ docker compose down
 | `DB_USER` | Пользователь PostgreSQL, обязательная переменная |
 | `DB_PASSWORD` | Пароль PostgreSQL, обязательная переменная |
 | `DB_NAME` | Имя базы данных, по умолчанию `Web_Labs` |
+| `REDIS_HOST` | Хост Redis, в Docker Compose используется `redis` |
+| `REDIS_PORT` | Порт Redis, по умолчанию `6379` |
+| `REDIS_PASSWORD` | Пароль Redis, обязательная переменная |
+| `REDIS_DB` | Номер базы Redis, по умолчанию `0` |
+| `CACHE_TTL_DEFAULT` | TTL кеша в секундах или Go duration, например `300` или `5m` |
 | `PORT` | Порт приложения, по умолчанию `4200` |
 | `APP_ENV` | Окружение приложения; влияет на Swagger (`production` отключает его по умолчанию) |
 | `SWAGGER_ENABLED` | Явное включение или выключение Swagger UI |
@@ -105,6 +112,27 @@ docker compose down
 | `PUT` | `/notes/:id` | Полное обновление заметки |
 | `PATCH` | `/notes/:id` | Частичное обновление заметки |
 | `DELETE` | `/notes/:id` | Soft delete заметки, ответ `204 No Content` |
+
+## Redis cache
+
+Приложение использует Redis для cache-aside кеширования часто читаемых данных и для управления access-сессиями:
+
+- `GET /notes/:id` кеширует конкретную заметку текущего пользователя.
+- `GET /notes?page=1&limit=10` кеширует список заметок текущего пользователя с учетом пагинации.
+- `GET /auth/whoami` кеширует публичный профиль пользователя без пароля, соли и токенов.
+- `POST /auth/logout` удаляет JTI текущего access token и кеш профиля.
+- `POST /auth/logout-all` удаляет все access-JTI пользователя по паттерну и кеш профиля.
+- `POST/PUT/PATCH/DELETE /notes` инвалидируют кеш списков заметок.
+- `PUT/PATCH/DELETE /notes/:id` инвалидируют кеш конкретной заметки.
+
+Ключи Redis имеют префикс `wp:` и TTL:
+
+```text
+wp:notes:user:{userId}:detail:{noteId}
+wp:notes:user:{userId}:list:page:{page}:limit:{limit}
+wp:users:profile:{userId}
+wp:auth:user:{userId}:access:{jti}
+```
 
 ## Примеры запросов
 

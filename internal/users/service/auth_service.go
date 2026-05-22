@@ -1,9 +1,13 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"log"
 	"time"
 
+	"Web_lab/internal/cache"
 	"Web_lab/internal/users/crypto"
 	"Web_lab/internal/users/dto"
 	"Web_lab/internal/users/models"
@@ -14,7 +18,6 @@ import (
 )
 
 const (
-	accessTokenType  = "access"
 	refreshTokenType = "refresh"
 )
 
@@ -25,6 +28,8 @@ type AuthService struct {
 	jwtRefreshSecret string
 	jwtAccessTTL     time.Duration
 	jwtRefreshTTL    time.Duration
+	cache            *cache.Service
+	profileCacheTTL  time.Duration
 }
 
 func NewAuthService(
@@ -34,6 +39,8 @@ func NewAuthService(
 	jwtRefreshSecret string,
 	jwtAccessTTL time.Duration,
 	jwtRefreshTTL time.Duration,
+	cacheService *cache.Service,
+	profileCacheTTL time.Duration,
 ) *AuthService {
 	return &AuthService{
 		userRepo:         userRepo,
@@ -42,6 +49,8 @@ func NewAuthService(
 		jwtRefreshSecret: jwtRefreshSecret,
 		jwtAccessTTL:     jwtAccessTTL,
 		jwtRefreshTTL:    jwtRefreshTTL,
+		cache:            cacheService,
+		profileCacheTTL:  profileCacheTTL,
 	}
 }
 
@@ -95,8 +104,28 @@ func (s *AuthService) Login(dto dto.LoginDTO) (string, string, error) {
 	return accessToken, refreshToken, nil
 }
 
-func (s *AuthService) Whoami(userID uuid.UUID) (*models.User, error) {
-	return s.userRepo.FindByID(userID)
+func (s *AuthService) Whoami(userID uuid.UUID) (*models.UserResponse, error) {
+	ctx := context.Background()
+	key := userProfileKey(userID)
+
+	var cached models.UserResponse
+	if ok, err := s.cache.Get(ctx, key, &cached); err == nil && ok {
+		return &cached, nil
+	} else if err != nil {
+		log.Printf("failed to read user profile cache %s: %v", key, err)
+	}
+
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	response := user.ToResponse()
+	if err := s.cache.Set(ctx, key, response, s.profileCacheTTL); err != nil {
+		log.Printf("failed to write user profile cache %s: %v", key, err)
+	}
+
+	return &response, nil
 }
 
 func (s *AuthService) AccessTokenTTL() time.Duration {
@@ -118,7 +147,11 @@ func (s *AuthService) ValidateAccessToken(accessToken string) (string, error) {
 		return "", err
 	}
 
-	if _, err := s.findMatchingToken(userID, accessToken, accessTokenType); err != nil {
+	if claims.ID == "" {
+		return "", errors.New("missing access token jti")
+	}
+
+	if err := s.validateAccessSession(userID, claims.ID); err != nil {
 		return "", err
 	}
 
@@ -127,8 +160,8 @@ func (s *AuthService) ValidateAccessToken(accessToken string) (string, error) {
 
 func (s *AuthService) Logout(userID uuid.UUID, accessToken, refreshToken string) error {
 	if accessToken != "" {
-		if tokenRecord, err := s.findMatchingToken(userID, accessToken, accessTokenType); err == nil {
-			if err := s.tokenRepo.RevokeByID(tokenRecord.ID); err != nil {
+		if claims, err := crypto.ParseToken(accessToken, s.jwtAccessSecret); err == nil && claims.ID != "" {
+			if err := s.deleteAccessSession(userID, claims.ID); err != nil {
 				return err
 			}
 		}
@@ -142,11 +175,23 @@ func (s *AuthService) Logout(userID uuid.UUID, accessToken, refreshToken string)
 		}
 	}
 
+	if err := s.deleteUserProfileCache(userID); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (s *AuthService) LogoutAll(userID uuid.UUID) error {
-	return s.tokenRepo.RevokeAll(userID)
+	if err := s.tokenRepo.RevokeAll(userID); err != nil {
+		return err
+	}
+
+	if err := s.deleteAllAccessSessions(userID); err != nil {
+		return err
+	}
+
+	return s.deleteUserProfileCache(userID)
 }
 
 func (s *AuthService) CreateTokens(userID uuid.UUID) (string, string, error) {
@@ -164,7 +209,7 @@ func (s *AuthService) CreateTokens(userID uuid.UUID) (string, string, error) {
 }
 
 func (s *AuthService) SaveTokenPair(userID uuid.UUID, accessToken, refreshToken string) error {
-	if err := s.saveToken(userID, accessToken, accessTokenType, s.jwtAccessTTL); err != nil {
+	if err := s.saveAccessSession(userID, accessToken); err != nil {
 		return err
 	}
 
@@ -173,6 +218,18 @@ func (s *AuthService) SaveTokenPair(userID uuid.UUID, accessToken, refreshToken 
 	}
 
 	return nil
+}
+
+func (s *AuthService) saveAccessSession(userID uuid.UUID, accessToken string) error {
+	claims, err := crypto.ParseToken(accessToken, s.jwtAccessSecret)
+	if err != nil {
+		return err
+	}
+	if claims.ID == "" {
+		return errors.New("missing access token jti")
+	}
+
+	return s.cache.Set(context.Background(), accessJTIKey(userID, claims.ID), "valid", s.jwtAccessTTL)
 }
 
 func (s *AuthService) RefreshTokens(refreshToken string) (string, string, error) {
@@ -266,7 +323,14 @@ func (s *AuthService) ResetPassword(resetToken, newPassword string) error {
 		return err
 	}
 
-	return s.tokenRepo.RevokeAll(user.ID)
+	if err := s.tokenRepo.RevokeAll(user.ID); err != nil {
+		return err
+	}
+	if err := s.deleteAllAccessSessions(user.ID); err != nil {
+		return err
+	}
+
+	return s.deleteUserProfileCache(user.ID)
 }
 
 func (s *AuthService) saveToken(userID uuid.UUID, rawToken, tokenType string, ttl time.Duration) error {
@@ -285,6 +349,48 @@ func (s *AuthService) saveToken(userID uuid.UUID, rawToken, tokenType string, tt
 	}
 
 	return s.tokenRepo.Create(tokenRecord)
+}
+
+func (s *AuthService) validateAccessSession(userID uuid.UUID, jti string) error {
+	if !s.cache.Enabled() {
+		return nil
+	}
+
+	var status string
+	found, err := s.cache.Get(context.Background(), accessJTIKey(userID, jti), &status)
+	if err != nil {
+		log.Printf("failed to validate access session in Redis: %v", err)
+		return nil
+	}
+	if !found || status != "valid" {
+		return errors.New("access session revoked")
+	}
+
+	return nil
+}
+
+func (s *AuthService) deleteAccessSession(userID uuid.UUID, jti string) error {
+	return s.cache.Del(context.Background(), accessJTIKey(userID, jti))
+}
+
+func (s *AuthService) deleteAllAccessSessions(userID uuid.UUID) error {
+	return s.cache.DelByPattern(context.Background(), accessJTIPattern(userID))
+}
+
+func (s *AuthService) deleteUserProfileCache(userID uuid.UUID) error {
+	return s.cache.Del(context.Background(), userProfileKey(userID))
+}
+
+func accessJTIKey(userID uuid.UUID, jti string) string {
+	return fmt.Sprintf("wp:auth:user:%s:access:%s", userID, jti)
+}
+
+func accessJTIPattern(userID uuid.UUID) string {
+	return fmt.Sprintf("wp:auth:user:%s:access:*", userID)
+}
+
+func userProfileKey(userID uuid.UUID) string {
+	return fmt.Sprintf("wp:users:profile:%s", userID)
 }
 
 func (s *AuthService) findMatchingToken(userID uuid.UUID, rawToken, tokenType string) (*models.Token, error) {
