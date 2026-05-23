@@ -1,86 +1,123 @@
 package repository
 
 import (
+	"context"
+	"time"
+
 	"Web_lab/internal/database"
 	"Web_lab/internal/notes/models"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// Интерфейс репозитория для тестирования
 type NoteRepository interface {
 	Create(note *models.Note) error
 	FindByID(id uuid.UUID) (*models.Note, error)
 	FindAll(offset, limit int) ([]models.Note, int64, error)
 	FindAllByUser(userID uuid.UUID, offset, limit int) ([]models.Note, int64, error)
 	Update(note *models.Note) error
-	Delete(id uuid.UUID) *gorm.DB
+	Delete(id uuid.UUID) (bool, error)
 }
 
 type NoteRepositoryImpl struct {
-	db *gorm.DB
+	collection *mongo.Collection
 }
 
 func NewNoteRepository(db *database.Database) NoteRepository {
-	return &NoteRepositoryImpl{db: db.DB}
+	return &NoteRepositoryImpl{collection: db.DB.Collection("notes")}
 }
 
-// Создание заметки
 func (r *NoteRepositoryImpl) Create(note *models.Note) error {
-	return r.db.Create(note).Error
+	now := time.Now().UTC()
+	if note.CreatedAt.IsZero() {
+		note.CreatedAt = now
+	}
+	note.UpdatedAt = now
+
+	_, err := r.collection.InsertOne(context.Background(), note)
+	return err
 }
 
-// Поиск по ID (исключая удалённые)
 func (r *NoteRepositoryImpl) FindByID(id uuid.UUID) (*models.Note, error) {
 	var note models.Note
-	err := r.db.Where("id = ? AND deleted_at IS NULL", id).First(&note).Error
+	err := r.collection.FindOne(context.Background(), activeFilter(bson.D{{Key: "_id", Value: id}})).Decode(&note)
 	if err != nil {
 		return nil, err
 	}
+
 	return &note, nil
 }
 
-// Получить все (с пагинацией, исключая удалённые)
 func (r *NoteRepositoryImpl) FindAll(offset, limit int) ([]models.Note, int64, error) {
-	var notes []models.Note
-	var total int64
-
-	r.db.Model(&models.Note{}).Where("deleted_at IS NULL").Count(&total)
-
-	err := r.db.Where("deleted_at IS NULL").Order("created_at desc").
-		Offset(offset).Limit(limit).Find(&notes).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return notes, total, nil
+	filter := activeFilter(bson.D{})
+	return r.findPage(filter, offset, limit)
 }
 
-// Получить все заметки пользователя (с пагинацией, исключая удалённые)
 func (r *NoteRepositoryImpl) FindAllByUser(userID uuid.UUID, offset, limit int) ([]models.Note, int64, error) {
-	var notes []models.Note
-	var total int64
+	filter := activeFilter(bson.D{{Key: "user_id", Value: userID}})
+	return r.findPage(filter, offset, limit)
+}
 
-	r.db.Model(&models.Note{}).
-		Where("user_id = ? AND deleted_at IS NULL", userID).
-		Count(&total)
+func (r *NoteRepositoryImpl) Update(note *models.Note) error {
+	note.UpdatedAt = time.Now().UTC()
 
-	err := r.db.Where("user_id = ? AND deleted_at IS NULL", userID).
-		Order("created_at desc").Offset(offset).Limit(limit).Find(&notes).Error
+	_, err := r.collection.ReplaceOne(
+		context.Background(),
+		activeFilter(bson.D{{Key: "_id", Value: note.ID}}),
+		note,
+	)
+	return err
+}
+
+func (r *NoteRepositoryImpl) Delete(id uuid.UUID) (bool, error) {
+	now := time.Now().UTC()
+	result, err := r.collection.UpdateOne(
+		context.Background(),
+		activeFilter(bson.D{{Key: "_id", Value: id}}),
+		bson.D{{Key: "$set", Value: bson.D{
+			{Key: "deleted_at", Value: now},
+			{Key: "updated_at", Value: now},
+		}}},
+	)
 	if err != nil {
+		return false, err
+	}
+
+	return result.MatchedCount > 0, nil
+}
+
+func (r *NoteRepositoryImpl) findPage(filter bson.D, offset, limit int) ([]models.Note, int64, error) {
+	ctx := context.Background()
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	findOptions := options.Find().
+		SetSort(bson.D{{Key: "created_at", Value: -1}}).
+		SetSkip(int64(offset)).
+		SetLimit(int64(limit))
+
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var notes []models.Note
+	if err := cursor.All(ctx, &notes); err != nil {
 		return nil, 0, err
 	}
 
 	return notes, total, nil
 }
 
-// Обновление
-func (r *NoteRepositoryImpl) Update(note *models.Note) error {
-	return r.db.Save(note).Error
-}
-
-// Soft delete — возвращает *gorm.DB для проверки RowsAffected
-func (r *NoteRepositoryImpl) Delete(id uuid.UUID) *gorm.DB {
-	return r.db.Delete(&models.Note{}, "id = ? AND deleted_at IS NULL", id)
+func activeFilter(base bson.D) bson.D {
+	filter := make(bson.D, 0, len(base)+1)
+	filter = append(filter, base...)
+	filter = append(filter, bson.E{Key: "deleted_at", Value: bson.D{{Key: "$exists", Value: false}}})
+	return filter
 }

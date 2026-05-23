@@ -8,13 +8,11 @@ import (
 	"Web_lab/internal/config"
 	"Web_lab/internal/database"
 	"Web_lab/internal/notes/handler"
-	noteModels "Web_lab/internal/notes/models"
 	"Web_lab/internal/notes/repository"
 	"Web_lab/internal/notes/routes"
 	"Web_lab/internal/notes/service"
 	userHandler "Web_lab/internal/users/handler"
 	"Web_lab/internal/users/middleware"
-	userModels "Web_lab/internal/users/models"
 	"Web_lab/internal/users/oauth"
 	userRepoPkg "Web_lab/internal/users/repository"
 	userRoutes "Web_lab/internal/users/routes"
@@ -44,21 +42,12 @@ func main() {
 	cfg := config.Load()
 	ctx := context.Background()
 
-	db, err := database.NewDatabase(cfg.DSN())
+	db, err := database.NewDatabase(ctx, cfg.MongoURI, cfg.DBName)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
-
-	err = db.DB.AutoMigrate(
-		&noteModels.Note{},
-		&userModels.User{},
-		&userModels.Token{},
-	)
-	if err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
-	}
-	log.Println("Migrations completed successfully")
+	defer db.Close(context.Background())
+	log.Println("MongoDB connection and indexes initialized successfully")
 
 	cacheService := cache.NewService(ctx, cache.Options{
 		Host:       cfg.RedisHost,
@@ -73,8 +62,8 @@ func main() {
 	noteService := service.NewNoteService(noteRepo, cacheService, cfg.CacheDefaultTTL)
 	noteHandler := handler.NewNoteHandler(noteService)
 
-	userRepo := userRepoPkg.NewUserRepository(db.DB)
-	tokenRepo := userRepoPkg.NewTokenRepository(db.DB)
+	userRepo := userRepoPkg.NewUserRepository(db)
+	tokenRepo := userRepoPkg.NewTokenRepository(db)
 
 	authService := userService.NewAuthService(
 		userRepo,

@@ -1,20 +1,19 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: web_labs_db
+  mongo:
+    image: mongo:6
+    container_name: web_labs_mongo
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-nix}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-sews}
-      POSTGRES_DB: ${DB_NAME:-Web_Labs}
+      MONGO_INITDB_ROOT_USERNAME: ${DB_USER:-nix}
+      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD:-sews}
     ports:
-      - "5432:5432"
+      - "27017:27017"
     volumes:
-      - web_labs_data:/var/lib/postgresql/data
+      - web_labs_mongo:/data/db
     networks:
       - web_labs_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-nix} -d ${DB_NAME:-Web_Labs}"]
+      test: ["CMD", "mongosh", "--quiet", "-u", "${DB_USER:-nix}", "-p", "${DB_PASSWORD:-sews}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -43,11 +42,8 @@ services:
     container_name: web_labs_app
     restart: unless-stopped
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
+      MONGO_URI: ${MONGO_URI}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -67,7 +63,7 @@ services:
     ports:
       - "4200:4200"
     depends_on:
-      postgres:
+      mongo:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -75,27 +71,10 @@ services:
       - web_labs_network
     volumes:
       - ./docs:/app/docs
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: web_labs_pgadmin
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-    ports:
-      - "5050:80"
-    depends_on:
-      - postgres
-    networks:
-      - web_labs_network
-    volumes:
-      - web_labs_pgadmin:/var/lib/pgadmin
 
 volumes:
-  web_labs_data:
+  web_labs_mongo:
   web_labs_redis:
-  web_labs_pgadmin:
 
 networks:
   web_labs_network:

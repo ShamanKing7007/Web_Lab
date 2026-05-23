@@ -30,6 +30,7 @@ deploy/.env.*
 *_data/
 *_pgadmin/
 *_redis/
+*_mongo/
 
 # IDE/editor files
 .idea/

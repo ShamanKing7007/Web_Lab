@@ -251,12 +251,12 @@ func (s *NoteServiceImpl) Delete(id uuid.UUID, userID uuid.UUID) error {
 		return apperrors.ErrForbidden
 	}
 
-	result := s.repo.Delete(id)
-	if result.RowsAffected == 0 {
-		return apperrors.ErrNotFound
+	deleted, err := s.repo.Delete(id)
+	if err != nil {
+		return err
 	}
-	if result.Error != nil {
-		return result.Error
+	if !deleted {
+		return apperrors.ErrNotFound
 	}
 
 	s.invalidateNoteCache(userID, id)

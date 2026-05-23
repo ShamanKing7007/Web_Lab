@@ -4,17 +4,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type Token struct {
-	ID        uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID    uuid.UUID      `gorm:"type:uuid;not null;index" json:"-"`
-	Type      string         `gorm:"size:20;not null;index" json:"-"`
-	TokenHash string         `gorm:"size:255;not null;index" json:"-"`
-	ExpiresAt time.Time      `gorm:"not null" json:"-"`
-	Revoked   bool           `gorm:"default:false" json:"-"`
-	CreatedAt time.Time      `json:"-"`
-	UpdatedAt time.Time      `json:"-"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID        uuid.UUID  `bson:"_id" json:"id"`
+	UserID    uuid.UUID  `bson:"user_id" json:"-"`
+	Type      string     `bson:"type" json:"-"`
+	TokenHash string     `bson:"token_hash" json:"-"`
+	ExpiresAt time.Time  `bson:"expires_at" json:"-"`
+	Revoked   bool       `bson:"revoked" json:"-"`
+	CreatedAt time.Time  `bson:"created_at" json:"-"`
+	UpdatedAt time.Time  `bson:"updated_at" json:"-"`
+	DeletedAt *time.Time `bson:"deleted_at,omitempty" json:"-"`
 }

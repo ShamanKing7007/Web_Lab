@@ -12,11 +12,8 @@ import (
 type Config struct {
 	AppEnv           string
 	SwaggerEnabled   bool
-	DBHost           string
-	DBPort           string
-	DBUser           string
-	DBPassword       string
 	DBName           string
+	MongoURI         string
 	Port             string
 	RedisHost        string
 	RedisPort        string
@@ -35,11 +32,8 @@ func Load() *Config {
 	cfg := &Config{
 		AppEnv:           appEnv,
 		SwaggerEnabled:   resolveSwaggerEnabled(appEnv),
-		DBHost:           getEnvOrDefault("DB_HOST", "localhost"),
-		DBPort:           getEnvOrDefault("DB_PORT", "5432"),
-		DBUser:           getEnvOrDefault("DB_USER", ""),
-		DBPassword:       os.Getenv("DB_PASSWORD"),
 		DBName:           getEnvOrDefault("DB_NAME", "Web_Labs"),
+		MongoURI:         os.Getenv("MONGO_URI"),
 		Port:             getEnvOrDefault("PORT", "4200"),
 		RedisHost:        getEnvOrDefault("REDIS_HOST", "localhost"),
 		RedisPort:        getEnvOrDefault("REDIS_PORT", "6379"),
@@ -52,11 +46,8 @@ func Load() *Config {
 		JWTRefreshTTL:    mustParseDurationEnv("JWT_REFRESH_EXPIRATION", "7d"),
 	}
 
-	if cfg.DBUser == "" {
-		log.Fatal("DB_USER environment variable is required")
-	}
-	if cfg.DBPassword == "" {
-		log.Fatal("DB_PASSWORD environment variable is required")
+	if cfg.MongoURI == "" {
+		log.Fatal("MONGO_URI environment variable is required")
 	}
 	if cfg.JWTAccessSecret == "" {
 		log.Fatal("JWT_ACCESS_SECRET environment variable is required")
@@ -149,11 +140,4 @@ func getEnvOrDefault(key, defaultVal string) string {
 	}
 
 	return defaultVal
-}
-
-func (c *Config) DSN() string {
-	return fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName,
-	)
 }

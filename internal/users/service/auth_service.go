@@ -14,7 +14,7 @@ import (
 	"Web_lab/internal/users/repository"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 const (
@@ -59,7 +59,7 @@ func (s *AuthService) Register(dto dto.RegisterDTO) (*models.User, error) {
 	if err == nil {
 		return nil, errors.New("email already exists")
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	if !errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, err
 	}
 

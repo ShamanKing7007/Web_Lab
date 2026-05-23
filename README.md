@@ -1,21 +1,19 @@
 # Web_Labs
 
-RESTful API для заметок с аутентификацией и авторизацией на Go (`Gin + GORM + PostgreSQL`).
+REST API для заметок с аутентификацией, OAuth, Redis-кешем и хранением данных в MongoDB.
 
 ## Стек
 
 - Go 1.26
 - Gin
-- GORM
-- PostgreSQL 16
+- MongoDB 6
 - Redis 7
 - Docker / Docker Compose
 - JWT (`github.com/golang-jwt/jwt/v5`)
 - bcrypt
+- Swagger UI
 
 ## Запуск
-
-### Через Docker Compose
 
 ```bash
 cd deploy
@@ -25,13 +23,13 @@ docker compose up --build
 
 Приложение будет доступно на `http://localhost:4200`.
 
-Swagger UI в режиме разработки доступен на `http://localhost:4200/api/docs/index.html`.
-Если `APP_ENV=production` или `SWAGGER_ENABLED=false`, маршрут документации не регистрируется и возвращает `404 Not Found`.
+Swagger UI в режиме разработки доступен на `http://localhost:4200/api/docs/index.html`. Если `APP_ENV=production` или `SWAGGER_ENABLED=false`, маршрут Swagger не регистрируется.
 
-Дополнительно:
-- PostgreSQL: `localhost:5432`
+Сервисы:
+
+- MongoDB: `localhost:27017`
 - Redis: `localhost:6379`
-- pgAdmin: `http://localhost:5050`
+- API: `localhost:4200`
 
 Остановка:
 
@@ -39,43 +37,88 @@ Swagger UI в режиме разработки доступен на `http://lo
 cd deploy
 docker compose down
 ```
+
 ## Переменные окружения
 
-Основные переменные из `deploy/.env.example`:
+Основные переменные находятся в `deploy/.env.example`.
 
 | Переменная | Описание |
 |---|---|
-| `DB_HOST` | Хост PostgreSQL, по умолчанию `localhost` |
-| `DB_PORT` | Порт PostgreSQL, по умолчанию `5432` |
-| `DB_USER` | Пользователь PostgreSQL, обязательная переменная |
-| `DB_PASSWORD` | Пароль PostgreSQL, обязательная переменная |
-| `DB_NAME` | Имя базы данных, по умолчанию `Web_Labs` |
+| `DB_USER` | Пользователь MongoDB root |
+| `DB_PASSWORD` | Пароль MongoDB root |
+| `DB_NAME` | Имя базы MongoDB |
+| `MONGO_URI` | Строка подключения к MongoDB |
 | `REDIS_HOST` | Хост Redis, в Docker Compose используется `redis` |
-| `REDIS_PORT` | Порт Redis, по умолчанию `6379` |
-| `REDIS_PASSWORD` | Пароль Redis, обязательная переменная |
-| `REDIS_DB` | Номер базы Redis, по умолчанию `0` |
-| `CACHE_TTL_DEFAULT` | TTL кеша в секундах или Go duration, например `300` или `5m` |
-| `PORT` | Порт приложения, по умолчанию `4200` |
-| `APP_ENV` | Окружение приложения; влияет на Swagger (`production` отключает его по умолчанию) |
-| `SWAGGER_ENABLED` | Явное включение или выключение Swagger UI |
-| `JWT_ACCESS_SECRET` | Секрет для access token, обязательная переменная |
-| `JWT_REFRESH_SECRET` | Секрет для refresh token, обязательная переменная |
-| `JWT_ACCESS_EXPIRATION` | Время жизни access token JWT, например `30s`, `15m`, `1h` |
-| `JWT_REFRESH_EXPIRATION` | Время жизни refresh token JWT; поддерживается и формат дней, например `7d` |
+| `REDIS_PORT` | Порт Redis |
+| `REDIS_PASSWORD` | Пароль Redis |
+| `REDIS_DB` | Номер базы Redis |
+| `CACHE_TTL_DEFAULT` | TTL кеша в секундах или Go duration |
+| `PORT` | Порт приложения |
+| `APP_ENV` | Окружение приложения |
+| `SWAGGER_ENABLED` | Явное включение/выключение Swagger UI |
+| `JWT_ACCESS_SECRET` | Секрет access token |
+| `JWT_REFRESH_SECRET` | Секрет refresh token |
+| `JWT_ACCESS_EXPIRATION` | Время жизни access token, например `15m` |
+| `JWT_REFRESH_EXPIRATION` | Время жизни refresh token, например `7d` |
 | `CLIENT_ID` | Yandex OAuth client id |
 | `CLIENT_SECRET` | Yandex OAuth client secret |
 | `CALLBACK_URL` | Callback URL OAuth, например `http://localhost:4200/auth/oauth/yandex/callback` |
-| `OAUTH_PROVIDER` | Значение есть в конфиге, но текущая реализация обрабатывает только `yandex` |
-| `PGADMIN_PASSWORD` | Пароль для pgAdmin |
+| `OAUTH_PROVIDER` | Сейчас обработчик поддерживает `yandex` |
 
-Примечание:
-- `JWT_ACCESS_EXPIRATION` и `JWT_REFRESH_EXPIRATION` читаются приложением из `.env`.
-- Поддерживаются стандартные значения Go duration: `30s`, `15m`, `1h`.
-- Для refresh token дополнительно поддержан формат с днями, например `7d`.
-- Время жизни cookies `access_token` и `refresh_token` синхронизировано с `JWT_ACCESS_EXPIRATION` и `JWT_REFRESH_EXPIRATION`.
-- Если `APP_ENV` не задан, приложение использует `development`. Также поддерживается fallback на `NODE_ENV`.
-- Для локальной разработки используйте `APP_ENV=development` и `SWAGGER_ENABLED=true`.
+## MongoDB
 
+PostgreSQL и pgAdmin в Lab6 не используются. Приложение подключается к MongoDB через `MONGO_URI`, а при старте создает индексы для коллекций:
+
+- `users`: уникальный `email`, sparse unique `yandex_id`, sparse unique `vk_id`;
+- `tokens`: уникальный `token_hash`, индекс для поиска активных refresh-сессий;
+- `notes`: индекс по `user_id`, `deleted_at`, `created_at`.
+
+Коллекции:
+
+- `users`
+- `tokens`
+- `notes`
+
+В API сохраняются текущие UUID-идентификаторы. Soft delete реализован через поле `deleted_at`; запросы чтения фильтруют удаленные документы.
+
+Проверка MongoDB через CLI:
+
+```bash
+docker compose exec mongo mongosh -u "$DB_USER" -p "$DB_PASSWORD" --authenticationDatabase admin
+use Web_Labs
+db.notes.find()
+db.users.find()
+db.tokens.find()
+```
+
+## Redis Cache
+
+Redis используется для cache-aside кеширования и управления access-сессиями:
+
+- `GET /notes/:id` кеширует конкретную заметку текущего пользователя.
+- `GET /notes?page=1&limit=10` кеширует список заметок текущего пользователя.
+- `GET /auth/whoami` кеширует публичный профиль пользователя.
+- `POST /auth/logout` удаляет JTI текущего access token и кеш профиля.
+- `POST /auth/logout-all` удаляет все access-JTI пользователя и кеш профиля.
+- `POST/PUT/PATCH/DELETE /notes` инвалидируют кеш списков.
+- `PUT/PATCH/DELETE /notes/:id` инвалидируют кеш конкретной заметки.
+
+Ключи Redis имеют префикс `wp:` и TTL:
+
+```text
+wp:notes:user:{userId}:detail:{noteId}
+wp:notes:user:{userId}:list:page:{page}:limit:{limit}
+wp:users:profile:{userId}
+wp:auth:user:{userId}:access:{jti}
+```
+
+Проверка Redis:
+
+```bash
+docker compose exec redis redis-cli --pass "$REDIS_PASSWORD" KEYS 'wp:*'
+docker compose exec redis redis-cli --pass "$REDIS_PASSWORD" TTL 'wp:users:profile:{userId}'
+docker compose exec redis redis-cli --pass "$REDIS_PASSWORD" GET 'wp:auth:user:{userId}:access:{jti}'
+```
 
 ## API
 
@@ -111,32 +154,11 @@ docker compose down
 | `POST` | `/notes` | Создание заметки |
 | `PUT` | `/notes/:id` | Полное обновление заметки |
 | `PATCH` | `/notes/:id` | Частичное обновление заметки |
-| `DELETE` | `/notes/:id` | Soft delete заметки, ответ `204 No Content` |
-
-## Redis cache
-
-Приложение использует Redis для cache-aside кеширования часто читаемых данных и для управления access-сессиями:
-
-- `GET /notes/:id` кеширует конкретную заметку текущего пользователя.
-- `GET /notes?page=1&limit=10` кеширует список заметок текущего пользователя с учетом пагинации.
-- `GET /auth/whoami` кеширует публичный профиль пользователя без пароля, соли и токенов.
-- `POST /auth/logout` удаляет JTI текущего access token и кеш профиля.
-- `POST /auth/logout-all` удаляет все access-JTI пользователя по паттерну и кеш профиля.
-- `POST/PUT/PATCH/DELETE /notes` инвалидируют кеш списков заметок.
-- `PUT/PATCH/DELETE /notes/:id` инвалидируют кеш конкретной заметки.
-
-Ключи Redis имеют префикс `wp:` и TTL:
-
-```text
-wp:notes:user:{userId}:detail:{noteId}
-wp:notes:user:{userId}:list:page:{page}:limit:{limit}
-wp:users:profile:{userId}
-wp:auth:user:{userId}:access:{jti}
-```
+| `DELETE` | `/notes/:id` | Soft delete заметки |
 
 ## Примеры запросов
 
-### Регистрация
+Регистрация:
 
 ```bash
 curl -X POST http://localhost:4200/auth/register \
@@ -144,7 +166,7 @@ curl -X POST http://localhost:4200/auth/register \
   -d "{\"email\":\"user@example.com\",\"password\":\"mypassword\"}"
 ```
 
-### Вход
+Вход:
 
 ```bash
 curl -X POST http://localhost:4200/auth/login \
@@ -153,21 +175,14 @@ curl -X POST http://localhost:4200/auth/login \
   -c cookies.txt
 ```
 
-### Проверка авторизации
+Проверка авторизации:
 
 ```bash
 curl -X GET http://localhost:4200/auth/whoami \
   -b cookies.txt
 ```
 
-### Список заметок
-
-```bash
-curl -X GET "http://localhost:4200/notes?page=1&limit=10" \
-  -b cookies.txt
-```
-
-### Создание заметки
+Создание заметки:
 
 ```bash
 curl -X POST http://localhost:4200/notes \
@@ -176,15 +191,14 @@ curl -X POST http://localhost:4200/notes \
   -d "{\"title\":\"Первая заметка\",\"content\":\"Текст заметки\"}"
 ```
 
-### Обновление токенов
+Список заметок:
 
 ```bash
-curl -X POST http://localhost:4200/auth/refresh \
-  -b cookies.txt \
-  -c cookies.txt
+curl -X GET "http://localhost:4200/notes?page=1&limit=10" \
+  -b cookies.txt
 ```
 
-### Logout текущей сессии
+Logout:
 
 ```bash
 curl -X POST http://localhost:4200/auth/logout \
@@ -192,31 +206,7 @@ curl -X POST http://localhost:4200/auth/logout \
   -c cookies.txt
 ```
 
-### Logout всех сессий
-
-```bash
-curl -X POST http://localhost:4200/auth/logout-all \
-  -b cookies.txt \
-  -c cookies.txt
-```
-
-### Запрос reset token
-
-```bash
-curl -X POST http://localhost:4200/auth/forgot-password \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"user@example.com\"}"
-```
-
-### Смена пароля
-
-```bash
-curl -X POST http://localhost:4200/auth/reset-password \
-  -H "Content-Type: application/json" \
-  -d "{\"token\":\"RESET_TOKEN\",\"password\":\"newpassword\"}"
-```
-
-### OAuth через Yandex
+OAuth через Yandex:
 
 ```bash
 curl -i http://localhost:4200/auth/oauth/yandex
@@ -234,10 +224,9 @@ curl -i http://localhost:4200/auth/oauth/yandex
 │   ├── swagger.json
 │   └── swagger.yaml
 ├── internal/
-│   ├── apperrors/
+│   ├── cache/
 │   ├── config/
 │   ├── database/
-│   ├── httpapi/
 │   ├── notes/
 │   │   ├── handler/
 │   │   ├── models/
@@ -259,63 +248,17 @@ curl -i http://localhost:4200/auth/oauth/yandex
 └── README.md
 ```
 
-## Модели
+## Ошибки API
 
-### User
+- `400 Bad Request` - некорректные входные данные
+- `401 Unauthorized` - отсутствует или невалиден токен
+- `403 Forbidden` - попытка доступа к чужому ресурсу
+- `404 Not Found` - ресурс не найден
+- `409 Conflict` - пользователь с таким email уже существует
+- `500 Internal Server Error` - внутренняя ошибка сервера
 
-- `id`
-- `email`
-- `password_hash`
-- `salt`
-- `yandex_id`
-- `vk_id`
-- `reset_token_hash`
-- `reset_token_expires_at`
-- `created_at`
-- `updated_at`
-- `deleted_at`
+## Ограничения
 
-### Token
-
-- `id`
-- `user_id`
-- `type`
-- `token_hash`
-- `expires_at`
-- `revoked`
-- `created_at`
-- `updated_at`
-- `deleted_at`
-
-### Note
-
-- `id`
-- `user_id`
-- `title`
-- `content`
-- `created_at`
-- `updated_at`
-- `deleted_at`
-
-## База данных и миграции
-
-При старте приложения выполняется `GORM AutoMigrate` для моделей:
-- `Note`
-- `User`
-- `Token`
-
-## Обработка ошибок
-
-Типичные ответы API:
-- `400 Bad Request` — некорректные входные данные
-- `401 Unauthorized` — отсутствует или невалиден токен
-- `403 Forbidden` — попытка доступа к чужому ресурсу
-- `404 Not Found` — ресурс не найден
-- `409 Conflict` — пользователь с таким email уже существует
-- `500 Internal Server Error` — внутренняя ошибка сервера
-
-## Ограничения текущей реализации
-
-- Основной runtime использует HttpOnly cookies для `access_token` и `refresh_token`; Bearer-схема в Swagger нужна в первую очередь для ручного тестирования.
+- Основной runtime использует HttpOnly cookies для `access_token` и `refresh_token`.
 - OAuth-маршруты параметризованы как `/auth/oauth/:provider`, но обработчик сейчас принимает только `yandex`.
-- Поле `vk_id` и связанные структуры в моделях уже есть, но полноценный VK OAuth flow не реализован.
+- Поле `vk_id` есть в модели пользователя, но полноценный VK OAuth flow не реализован.

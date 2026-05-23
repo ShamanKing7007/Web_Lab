@@ -1,70 +1,93 @@
 package repository
 
 import (
-	"Web_lab/internal/users/models"
+	"context"
 	"time"
 
+	"Web_lab/internal/database"
+	"Web_lab/internal/users/models"
+
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type UserRepository struct {
-	db *gorm.DB
+	collection *mongo.Collection
 }
 
-func NewUserRepository(db *gorm.DB) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepository(db *database.Database) *UserRepository {
+	return &UserRepository{collection: db.DB.Collection("users")}
 }
 
-// Создание пользователя
 func (r *UserRepository) Create(user *models.User) error {
-	return r.db.Create(user).Error
+	now := time.Now().UTC()
+	if user.CreatedAt.IsZero() {
+		user.CreatedAt = now
+	}
+	user.UpdatedAt = now
+
+	_, err := r.collection.InsertOne(context.Background(), user)
+	return err
 }
 
-// Поиск по email (исключая удалённые)
 func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
-	var user models.User
-	err := r.db.Where("email = ?", email).First(&user).Error
-	if err != nil {
-		return nil, err
-	}
-	return &user, nil
+	return r.findOne(activeUserFilter(bson.D{{Key: "email", Value: email}}))
 }
 
-// Поиск по ID (исключая удалённые)
 func (r *UserRepository) FindByID(id uuid.UUID) (*models.User, error) {
-	var user models.User
-	err := r.db.First(&user, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &user, nil
+	return r.findOne(activeUserFilter(bson.D{{Key: "_id", Value: id}}))
 }
 
-// Поиск по Yandex ID (исключая удалённые)
 func (r *UserRepository) FindByYandexID(yandexID string) (*models.User, error) {
-	var user models.User
-	err := r.db.Where("yandex_id = ?", yandexID).First(&user).Error
+	return r.findOne(activeUserFilter(bson.D{{Key: "yandex_id", Value: yandexID}}))
+}
+
+func (r *UserRepository) FindUsersWithActiveResetToken() ([]models.User, error) {
+	filter := activeUserFilter(bson.D{
+		{Key: "reset_token_hash", Value: bson.D{{Key: "$exists", Value: true}}},
+		{Key: "reset_token_expires_at", Value: bson.D{{Key: "$gt", Value: time.Now().UTC()}}},
+	})
+
+	cursor, err := r.collection.Find(context.Background(), filter, options.Find())
 	if err != nil {
 		return nil, err
 	}
-	return &user, nil
-}
+	defer cursor.Close(context.Background())
 
-// FindUsersWithActiveResetToken возвращает пользователей с неистёкшими reset-токенами.
-func (r *UserRepository) FindUsersWithActiveResetToken() ([]models.User, error) {
 	var users []models.User
-	err := r.db.
-		Where("reset_token_hash IS NOT NULL AND reset_token_expires_at IS NOT NULL AND reset_token_expires_at > ?", time.Now()).
-		Find(&users).Error
-	if err != nil {
+	if err := cursor.All(context.Background(), &users); err != nil {
 		return nil, err
 	}
 
 	return users, nil
 }
 
-// Обновление пользователя
 func (r *UserRepository) Update(user *models.User) error {
-	return r.db.Save(user).Error
+	user.UpdatedAt = time.Now().UTC()
+
+	_, err := r.collection.ReplaceOne(
+		context.Background(),
+		activeUserFilter(bson.D{{Key: "_id", Value: user.ID}}),
+		user,
+	)
+	return err
+}
+
+func (r *UserRepository) findOne(filter bson.D) (*models.User, error) {
+	var user models.User
+	err := r.collection.FindOne(context.Background(), filter).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func activeUserFilter(base bson.D) bson.D {
+	filter := make(bson.D, 0, len(base)+1)
+	filter = append(filter, base...)
+	filter = append(filter, bson.E{Key: "deleted_at", Value: bson.D{{Key: "$exists", Value: false}}})
+	return filter
 }
