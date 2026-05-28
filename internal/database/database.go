@@ -86,6 +86,16 @@ func (d *Database) EnsureIndexes(ctx context.Context) error {
 				Options: options.Index().SetName("ix_notes_user_deleted_created"),
 			},
 		},
+		"files": {
+			{
+				Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "deleted_at", Value: 1}, {Key: "created_at", Value: -1}},
+				Options: options.Index().SetName("ix_files_user_deleted_created"),
+			},
+			{
+				Keys:    bson.D{{Key: "object_key", Value: 1}},
+				Options: options.Index().SetUnique(true).SetName("ux_files_object_key"),
+			},
+		},
 	}
 
 	for collection, models := range indexes {

@@ -75,6 +75,10 @@ func (r *UserRepository) Update(user *models.User) error {
 	return err
 }
 
+func (r *UserRepository) UpdateProfile(user *models.User) error {
+	return r.Update(user)
+}
+
 func (r *UserRepository) findOne(filter bson.D) (*models.User, error) {
 	var user models.User
 	err := r.collection.FindOne(context.Background(), filter).Decode(&user)

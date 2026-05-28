@@ -8,6 +8,7 @@ REST API для заметок с аутентификацией, OAuth, Redis-�
 - Gin
 - MongoDB 6
 - Redis 7
+- MinIO
 - Docker / Docker Compose
 - JWT (`github.com/golang-jwt/jwt/v5`)
 - bcrypt
@@ -29,6 +30,8 @@ Swagger UI в режиме разработки доступен на `http://lo
 
 - MongoDB: `localhost:27017`
 - Redis: `localhost:6379`
+- MinIO API: `localhost:9000`
+- MinIO Console: `localhost:9001`
 - API: `localhost:4200`
 
 Остановка:
@@ -64,6 +67,12 @@ docker compose down
 | `CLIENT_SECRET` | Yandex OAuth client secret |
 | `CALLBACK_URL` | Callback URL OAuth, например `http://localhost:4200/auth/oauth/yandex/callback` |
 | `OAUTH_PROVIDER` | Сейчас обработчик поддерживает `yandex` |
+| `MINIO_ENDPOINT` | Адрес MinIO, в Docker Compose используется `minio:9000` |
+| `MINIO_ACCESS_KEY` | Access key для MinIO |
+| `MINIO_SECRET_KEY` | Secret key для MinIO |
+| `MINIO_BUCKET` | Bucket для хранения файлов |
+| `MINIO_USE_SSL` | Использовать SSL для подключения к MinIO |
+| `MAX_FILE_SIZE` | Максимальный размер загружаемого файла в байтах, по умолчанию `10485760` |
 
 ## MongoDB
 
@@ -72,12 +81,16 @@ PostgreSQL и pgAdmin в Lab6 не используются. Приложени�
 - `users`: уникальный `email`, sparse unique `yandex_id`, sparse unique `vk_id`;
 - `tokens`: уникальный `token_hash`, индекс для поиска активных refresh-сессий;
 - `notes`: индекс по `user_id`, `deleted_at`, `created_at`.
+- `files`: индекс по `user_id`, `deleted_at`, `created_at`, уникальный `object_key`.
 
 Коллекции:
 
 - `users`
 - `tokens`
 - `notes`
+- `files`
+
+Файлы не сохраняются в MongoDB как BLOB. В коллекции `files` хранятся только метаданные: UUID, владелец, оригинальное имя, размер, MIME-type, bucket, object key, даты создания/обновления и `deleted_at`.
 
 В API сохраняются текущие UUID-идентификаторы. Soft delete реализован через поле `deleted_at`; запросы чтения фильтруют удаленные документы.
 
@@ -102,6 +115,8 @@ Redis используется для cache-aside кеширования и уп
 - `POST /auth/logout-all` удаляет все access-JTI пользователя и кеш профиля.
 - `POST/PUT/PATCH/DELETE /notes` инвалидируют кеш списков.
 - `PUT/PATCH/DELETE /notes/:id` инвалидируют кеш конкретной заметки.
+- `GET /files/:id` использует кеш метаданных файла.
+- `DELETE /files/:id` инвалидирует кеш метаданных файла.
 
 Ключи Redis имеют префикс `wp:` и TTL:
 
@@ -110,6 +125,7 @@ wp:notes:user:{userId}:detail:{noteId}
 wp:notes:user:{userId}:list:page:{page}:limit:{limit}
 wp:users:profile:{userId}
 wp:auth:user:{userId}:access:{jti}
+wp:files:{fileId}:meta
 ```
 
 Проверка Redis:
@@ -155,6 +171,33 @@ docker compose exec redis redis-cli --pass "$REDIS_PASSWORD" GET 'wp:auth:user:{
 | `PUT` | `/notes/:id` | Полное обновление заметки |
 | `PATCH` | `/notes/:id` | Частичное обновление заметки |
 | `DELETE` | `/notes/:id` | Soft delete заметки |
+
+### Files
+
+Все маршруты `/files/*` защищены access token из cookie или заголовка `Authorization: Bearer`.
+
+| Метод | URI | Описание | Доступ |
+|---|---|---|---|
+| `POST` | `/files` | Потоковая загрузка PNG/JPEG/JPG через `multipart/form-data`, поле `file` | Private |
+| `GET` | `/files/:id` | Скачивание файла из MinIO с заголовками `Content-Type`, `Content-Disposition`, `Content-Length` | Только владелец |
+| `DELETE` | `/files/:id` | Soft delete метаданных и удаление объекта из MinIO | Только владелец |
+
+Ограничения загрузки:
+
+- разрешенные MIME-type: `image/png`, `image/jpeg`, `image/jpg`;
+- максимальный размер: `MAX_FILE_SIZE`, по умолчанию 10 MB;
+- файл передается в MinIO потоком, без полного чтения в память приложения.
+
+### Profile
+
+Все маршруты `/profile` защищены access token из cookie или заголовка `Authorization: Bearer`.
+
+| Метод | URI | Описание |
+|---|---|---|
+| `GET` | `/profile` | Получение текущего профиля |
+| `POST` | `/profile` | Обновление `display_name`, `bio`, `avatar_file_id` |
+
+При установке `avatar_file_id` приложение проверяет, что файл принадлежит текущему пользователю. Предыдущий avatar-файл помечается удаленным.
 
 ## Примеры запросов
 
@@ -212,6 +255,38 @@ OAuth через Yandex:
 curl -i http://localhost:4200/auth/oauth/yandex
 ```
 
+Загрузка файла:
+
+```bash
+curl -X POST http://localhost:4200/files \
+  -b cookies.txt \
+  -F "file=@avatar.png"
+```
+
+Скачивание файла:
+
+```bash
+curl -L http://localhost:4200/files/550e8400-e29b-41d4-a716-446655440000 \
+  -b cookies.txt \
+  -o avatar.png
+```
+
+Обновление профиля с аватаром:
+
+```bash
+curl -X POST http://localhost:4200/profile \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d "{\"display_name\":\"Ivan Petrov\",\"bio\":\"Backend developer\",\"avatar_file_id\":\"550e8400-e29b-41d4-a716-446655440000\"}"
+```
+
+Получение профиля:
+
+```bash
+curl -X GET http://localhost:4200/profile \
+  -b cookies.txt
+```
+
 ## Структура проекта
 
 ```text
@@ -234,6 +309,12 @@ curl -i http://localhost:4200/auth/oauth/yandex
 │   │   ├── routes/
 │   │   ├── service/
 │   │   └── validator/
+│   ├── storage/
+│   │   ├── handler/
+│   │   ├── models/
+│   │   ├── repository/
+│   │   ├── routes/
+│   │   └── service/
 │   └── users/
 │       ├── crypto/
 │       ├── dto/

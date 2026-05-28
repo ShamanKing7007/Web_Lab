@@ -458,6 +458,186 @@ const docTemplate = `{
                 }
             }
         },
+        "/files": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Загружает PNG/JPEG/JPG потоком через multipart/form-data и сохраняет метаданные в MongoDB",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Загрузить файл",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "Файл изображения PNG/JPEG/JPG",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Файл загружен",
+                        "schema": {
+                            "$ref": "#/definitions/models.FileResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Некорректный файл",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Пользователь не авторизован",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Ошибка загрузки",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/files/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Возвращает поток файла из MinIO, если файл принадлежит текущему пользователю",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Скачать файл",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "UUID файла",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Файл",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Некорректный ID",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Пользователь не авторизован",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Доступ к чужому файлу запрещен",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Файл не найден",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Ошибка скачивания",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Физически удаляет объект из MinIO и помечает метаданные как удаленные",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Удалить файл",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "UUID файла",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Файл удален"
+                    },
+                    "400": {
+                        "description": "Некорректный ID",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Пользователь не авторизован",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Доступ к чужому файлу запрещен",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Файл не найден",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Ошибка удаления",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/notes": {
             "get": {
                 "security": [
@@ -843,6 +1023,110 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/profile": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Возвращает профиль текущего авторизованного пользователя",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "profile"
+                ],
+                "summary": "Получить профиль",
+                "responses": {
+                    "200": {
+                        "description": "Профиль пользователя",
+                        "schema": {
+                            "$ref": "#/definitions/models.UserResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Пользователь не авторизован",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Пользователь не найден",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Обновляет displayName, bio и avatarFileId после проверки владения файлом",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "profile"
+                ],
+                "summary": "Обновить профиль",
+                "parameters": [
+                    {
+                        "description": "Данные профиля",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.UpdateProfileDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Профиль обновлен",
+                        "schema": {
+                            "$ref": "#/definitions/models.UserResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Некорректные данные",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Пользователь не авторизован",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Файл принадлежит другому пользователю",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Пользователь или файл не найден",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Ошибка обновления",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -911,6 +1195,26 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.UpdateProfileDTO": {
+            "description": "Данные для обновления профиля пользователя.",
+            "type": "object",
+            "properties": {
+                "avatar_file_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "bio": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "example": "Backend developer"
+                },
+                "display_name": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "example": "Ivan Petrov"
+                }
+            }
+        },
         "httpapi.ErrorResponse": {
             "type": "object",
             "properties": {
@@ -947,7 +1251,7 @@ const docTemplate = `{
             "properties": {
                 "authorization_url": {
                     "type": "string",
-                    "example": "https://oauth.yandex.ru/authorize?response_type=code&client_id=your_client_id"
+                    "example": "https://oauth.yandex.ru/authorize?response_type=code\u0026client_id=your_client_id"
                 },
                 "message": {
                     "type": "string",
@@ -967,13 +1271,59 @@ const docTemplate = `{
                 }
             }
         },
-        "models.UserResponse": {
-            "description": "Пользовательская информация для API ответов",
+        "models.FileResponse": {
+            "description": "Публичные метаданные файла без bucket и objectKey.",
             "type": "object",
             "properties": {
                 "created_at": {
                     "type": "string",
+                    "example": "2026-05-23T12:00:00Z"
+                },
+                "download_url": {
+                    "type": "string",
+                    "example": "/files/550e8400-e29b-41d4-a716-446655440000"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "mime_type": {
+                    "type": "string",
+                    "example": "image/png"
+                },
+                "original_name": {
+                    "type": "string",
+                    "example": "avatar.png"
+                },
+                "size": {
+                    "type": "integer",
+                    "example": 184532
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-05-23T12:00:00Z"
+                }
+            }
+        },
+        "models.UserResponse": {
+            "description": "Пользовательская информация для API ответов",
+            "type": "object",
+            "properties": {
+                "avatar_file_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "bio": {
+                    "type": "string",
+                    "example": "Backend developer"
+                },
+                "created_at": {
+                    "type": "string",
                     "example": "2024-01-01T12:00:00Z"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "Ivan Petrov"
                 },
                 "email": {
                     "type": "string",

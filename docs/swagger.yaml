@@ -46,6 +46,21 @@ definitions:
     - password
     - token
     type: object
+  dto.UpdateProfileDTO:
+    description: Данные для обновления профиля пользователя.
+    properties:
+      avatar_file_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      bio:
+        example: Backend developer
+        maxLength: 500
+        type: string
+      display_name:
+        example: Ivan Petrov
+        maxLength: 100
+        type: string
+    type: object
   httpapi.ErrorResponse:
     properties:
       error:
@@ -84,11 +99,45 @@ definitions:
       user:
         $ref: '#/definitions/models.UserResponse'
     type: object
+  models.FileResponse:
+    description: Публичные метаданные файла без bucket и objectKey.
+    properties:
+      created_at:
+        example: "2026-05-23T12:00:00Z"
+        type: string
+      download_url:
+        example: /files/550e8400-e29b-41d4-a716-446655440000
+        type: string
+      id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      mime_type:
+        example: image/png
+        type: string
+      original_name:
+        example: avatar.png
+        type: string
+      size:
+        example: 184532
+        type: integer
+      updated_at:
+        example: "2026-05-23T12:00:00Z"
+        type: string
+    type: object
   models.UserResponse:
     description: Пользовательская информация для API ответов
     properties:
+      avatar_file_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      bio:
+        example: Backend developer
+        type: string
       created_at:
         example: "2024-01-01T12:00:00Z"
+        type: string
+      display_name:
+        example: Ivan Petrov
         type: string
       email:
         example: user@example.com
@@ -290,9 +339,9 @@ paths:
       - auth
   /auth/oauth/{provider}:
     get:
-      description: При обычном открытии в браузере делает redirect на страницу
-        авторизации OAuth-провайдера. Для Swagger UI и других fetch-клиентов
-        возвращает URL авторизации в JSON.
+      description: При обычном открытии в браузере делает redirect на страницу авторизации
+        OAuth-провайдера. Для Swagger UI и других fetch-клиентов возвращает URL авторизации
+        в JSON.
       parameters:
       - description: OAuth-провайдер
         enum:
@@ -467,6 +516,124 @@ paths:
       summary: Информация о себе
       tags:
       - auth
+  /files:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Загружает PNG/JPEG/JPG потоком через multipart/form-data и сохраняет
+        метаданные в MongoDB
+      parameters:
+      - description: Файл изображения PNG/JPEG/JPG
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Файл загружен
+          schema:
+            $ref: '#/definitions/models.FileResponse'
+        "400":
+          description: Некорректный файл
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Ошибка загрузки
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Загрузить файл
+      tags:
+      - files
+  /files/{id}:
+    delete:
+      description: Физически удаляет объект из MinIO и помечает метаданные как удаленные
+      parameters:
+      - description: UUID файла
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Файл удален
+        "400":
+          description: Некорректный ID
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "403":
+          description: Доступ к чужому файлу запрещен
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Файл не найден
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Ошибка удаления
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Удалить файл
+      tags:
+      - files
+    get:
+      description: Возвращает поток файла из MinIO, если файл принадлежит текущему
+        пользователю
+      parameters:
+      - description: UUID файла
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: Файл
+          schema:
+            type: file
+        "400":
+          description: Некорректный ID
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "403":
+          description: Доступ к чужому файлу запрещен
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Файл не найден
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Ошибка скачивания
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Скачать файл
+      tags:
+      - files
   /notes:
     get:
       description: Возвращает список заметок текущего пользователя с пагинацией
@@ -719,6 +886,73 @@ paths:
       summary: Полностью обновить заметку
       tags:
       - notes
+  /profile:
+    get:
+      description: Возвращает профиль текущего авторизованного пользователя
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Профиль пользователя
+          schema:
+            $ref: '#/definitions/models.UserResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Пользователь не найден
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Получить профиль
+      tags:
+      - profile
+    post:
+      consumes:
+      - application/json
+      description: Обновляет displayName, bio и avatarFileId после проверки владения
+        файлом
+      parameters:
+      - description: Данные профиля
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateProfileDTO'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Профиль обновлен
+          schema:
+            $ref: '#/definitions/models.UserResponse'
+        "400":
+          description: Некорректные данные
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "403":
+          description: Файл принадлежит другому пользователю
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Пользователь или файл не найден
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "500":
+          description: Ошибка обновления
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Обновить профиль
+      tags:
+      - profile
 schemes:
 - http
 securityDefinitions:

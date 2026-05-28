@@ -35,6 +35,27 @@ services:
       timeout: 5s
       retries: 5
 
+  minio:
+    image: minio/minio:latest
+    container_name: web_labs_minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - web_labs_minio:/data
+    networks:
+      - web_labs_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   app:
     build:
       context: ..
@@ -60,12 +81,20 @@ services:
       CLIENT_SECRET: ${CLIENT_SECRET}
       CALLBACK_URL: ${CALLBACK_URL}
       OAUTH_PROVIDER: ${OAUTH_PROVIDER}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-10485760}
     ports:
       - "4200:4200"
     depends_on:
       mongo:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     networks:
       - web_labs_network
@@ -75,6 +104,7 @@ services:
 volumes:
   web_labs_mongo:
   web_labs_redis:
+  web_labs_minio:
 
 networks:
   web_labs_network:

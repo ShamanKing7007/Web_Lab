@@ -8,7 +8,7 @@ import (
 	"Web_lab/internal/httpapi"
 	"Web_lab/internal/users/dto"
 	"Web_lab/internal/users/middleware"
-	userModels "Web_lab/internal/users/models"
+	"Web_lab/internal/users/models"
 	"Web_lab/internal/users/oauth"
 	"Web_lab/internal/users/repository"
 	"Web_lab/internal/users/service"
@@ -71,7 +71,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	var responseUser userModels.UserResponse = user.ToResponse()
+	var responseUser models.UserResponse = user.ToResponse()
 	c.JSON(http.StatusCreated, httpapi.RegisterResponse{
 		Message: "user registered",
 		User:    responseUser,
@@ -112,7 +112,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // @Tags         auth
 // @Produce      json
 // @Security     BearerAuth
-// @Success      200 {object} userModels.UserResponse "Профиль пользователя"
+// @Success      200 {object} models.UserResponse "Профиль пользователя"
 // @Failure      401 {object} httpapi.ErrorResponse "Не авторизован"
 // @Failure      404 {object} httpapi.ErrorResponse "Пользователь не найден"
 // @Router       /auth/whoami [get]

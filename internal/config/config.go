@@ -24,6 +24,12 @@ type Config struct {
 	JWTRefreshSecret string
 	JWTAccessTTL     time.Duration
 	JWTRefreshTTL    time.Duration
+	MinIOEndpoint    string
+	MinIOAccessKey   string
+	MinIOSecretKey   string
+	MinIOBucket      string
+	MinIOUseSSL      bool
+	MaxFileSize      int64
 }
 
 func Load() *Config {
@@ -44,6 +50,12 @@ func Load() *Config {
 		JWTRefreshSecret: os.Getenv("JWT_REFRESH_SECRET"),
 		JWTAccessTTL:     mustParseDurationEnv("JWT_ACCESS_EXPIRATION", "15m"),
 		JWTRefreshTTL:    mustParseDurationEnv("JWT_REFRESH_EXPIRATION", "7d"),
+		MinIOEndpoint:    os.Getenv("MINIO_ENDPOINT"),
+		MinIOAccessKey:   os.Getenv("MINIO_ACCESS_KEY"),
+		MinIOSecretKey:   os.Getenv("MINIO_SECRET_KEY"),
+		MinIOBucket:      getEnvOrDefault("MINIO_BUCKET", "web-labs-files"),
+		MinIOUseSSL:      mustParseBoolEnv("MINIO_USE_SSL", "false"),
+		MaxFileSize:      mustParseInt64Env("MAX_FILE_SIZE", "10485760"),
 	}
 
 	if cfg.MongoURI == "" {
@@ -58,6 +70,15 @@ func Load() *Config {
 	if cfg.RedisPassword == "" {
 		log.Fatal("REDIS_PASSWORD environment variable is required")
 	}
+	if cfg.MinIOEndpoint == "" {
+		log.Fatal("MINIO_ENDPOINT environment variable is required")
+	}
+	if cfg.MinIOAccessKey == "" {
+		log.Fatal("MINIO_ACCESS_KEY environment variable is required")
+	}
+	if cfg.MinIOSecretKey == "" {
+		log.Fatal("MINIO_SECRET_KEY environment variable is required")
+	}
 
 	return cfg
 }
@@ -67,6 +88,26 @@ func mustParseIntEnv(key, defaultVal string) int {
 	value, err := strconv.Atoi(raw)
 	if err != nil {
 		log.Fatalf("%s has invalid integer value %q", key, raw)
+	}
+
+	return value
+}
+
+func mustParseInt64Env(key, defaultVal string) int64 {
+	raw := getEnvOrDefault(key, defaultVal)
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		log.Fatalf("%s has invalid integer value %q", key, raw)
+	}
+
+	return value
+}
+
+func mustParseBoolEnv(key, defaultVal string) bool {
+	raw := getEnvOrDefault(key, defaultVal)
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		log.Fatalf("%s has invalid boolean value %q", key, raw)
 	}
 
 	return value
