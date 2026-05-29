@@ -35,6 +35,26 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: web_labs_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-student}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-student_secure_rabbit_pass_change_in_prod}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - web_labs_rabbitmq:/var/lib/rabbitmq
+    networks:
+      - web_labs_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   minio:
     image: minio/minio:latest
     container_name: web_labs_minio
@@ -87,12 +107,27 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET}
       MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
       MAX_FILE_SIZE: ${MAX_FILE_SIZE:-10485760}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-student}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-student_secure_rabbit_pass_change_in_prod}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-app.events}
+      RABBITMQ_DLX: ${RABBITMQ_DLX:-app.dlx}
+      QUEUE_USER_REGISTERED: ${QUEUE_USER_REGISTERED:-wp.auth.user.registered}
+      SMTP_HOST: ${SMTP_HOST:-smtp.yandex.ru}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-your_email@yandex.ru}
+      SMTP_PASS: ${SMTP_PASS:-your_app_password}
+      SMTP_FROM: ${SMTP_FROM:-your_email@yandex.ru}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
     ports:
       - "4200:4200"
     depends_on:
       mongo:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
       minio:
         condition: service_healthy
@@ -104,6 +139,7 @@ services:
 volumes:
   web_labs_mongo:
   web_labs_redis:
+  web_labs_rabbitmq:
   web_labs_minio:
 
 networks:

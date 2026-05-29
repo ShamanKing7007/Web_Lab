@@ -8,7 +8,9 @@ REST API для заметок с аутентификацией, OAuth, Redis-�
 - Gin
 - MongoDB 6
 - Redis 7
+- RabbitMQ 3.12 Management
 - MinIO
+- SMTP
 - Docker / Docker Compose
 - JWT (`github.com/golang-jwt/jwt/v5`)
 - bcrypt
@@ -30,6 +32,8 @@ Swagger UI в режиме разработки доступен на `http://lo
 
 - MongoDB: `localhost:27017`
 - Redis: `localhost:6379`
+- RabbitMQ AMQP: `localhost:5672`
+- RabbitMQ Management UI: `http://localhost:15672`
 - MinIO API: `localhost:9000`
 - MinIO Console: `localhost:9001`
 - API: `localhost:4200`
@@ -56,6 +60,19 @@ docker compose down
 | `REDIS_PASSWORD` | Пароль Redis |
 | `REDIS_DB` | Номер базы Redis |
 | `CACHE_TTL_DEFAULT` | TTL кеша в секундах или Go duration |
+| `RABBITMQ_HOST` | Хост RabbitMQ, в Docker Compose используется `rabbitmq` |
+| `RABBITMQ_PORT` | AMQP-порт RabbitMQ |
+| `RABBITMQ_USER` | Пользователь RabbitMQ, не должен быть `guest` |
+| `RABBITMQ_PASS` | Пароль RabbitMQ |
+| `RABBITMQ_EXCHANGE` | Direct exchange для событий приложения, по умолчанию `app.events` |
+| `RABBITMQ_DLX` | Dead Letter Exchange, по умолчанию `app.dlx` |
+| `QUEUE_USER_REGISTERED` | Очередь события регистрации, по умолчанию `wp.auth.user.registered` |
+| `SMTP_HOST` | SMTP-сервер, например `smtp.yandex.ru` |
+| `SMTP_PORT` | SMTP-порт, для Yandex SSL используется `465` |
+| `SMTP_USER` | Пользователь SMTP |
+| `SMTP_PASS` | Пароль приложения SMTP |
+| `SMTP_FROM` | Адрес отправителя приветственного письма |
+| `SMTP_SECURE` | Использовать TLS-подключение сразу при соединении |
 | `PORT` | Порт приложения |
 | `APP_ENV` | Окружение приложения |
 | `SWAGGER_ENABLED` | Явное включение/выключение Swagger UI |
@@ -102,6 +119,44 @@ use Web_Labs
 db.notes.find()
 db.users.find()
 db.tokens.find()
+```
+
+## RabbitMQ и SMTP
+
+RabbitMQ используется для асинхронной обработки события регистрации пользователя. После успешного создания пользователя `POST /auth/register` публикует persistent JSON-сообщение в exchange `app.events` с routing key `user.registered`. Сообщение попадает в очередь `wp.auth.user.registered`, где фоновый consumer отправляет приветственное письмо через SMTP.
+
+Формат события:
+
+```json
+{
+  "eventId": "uuid",
+  "eventType": "user.registered",
+  "timestamp": "2026-05-30T10:30:00Z",
+  "payload": {
+    "userId": "uuid",
+    "email": "user@example.com"
+  },
+  "metadata": {
+    "attempt": 1,
+    "sourceService": "web-labs-api"
+  }
+}
+```
+
+RabbitMQ Management UI доступен на `http://localhost:15672`. Для входа используются `RABBITMQ_USER` и `RABBITMQ_PASS` из `deploy/.env`; пользователь `guest/guest` не используется.
+
+Гарантии обработки:
+
+- сообщение подтверждается через `ack` только после успешной SMTP-отправки;
+- при ошибке SMTP consumer повторно публикует сообщение с увеличенным `metadata.attempt`;
+- после 3 неудачных попыток сообщение отправляется в `wp.auth.user.registered.dlq` через Dead Letter Exchange `app.dlx`;
+- если событие регистрации не удалось опубликовать в RabbitMQ, API возвращает `500`.
+
+Проверка очередей:
+
+```bash
+docker compose exec rabbitmq rabbitmqctl list_queues name messages messages_ready messages_unacknowledged
+docker compose exec rabbitmq rabbitmqctl list_bindings
 ```
 
 ## Redis Cache

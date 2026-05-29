@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"Web_lab/internal/cache"
+	"Web_lab/internal/queue"
 	"Web_lab/internal/users/crypto"
 	"Web_lab/internal/users/dto"
 	"Web_lab/internal/users/models"
@@ -21,6 +22,10 @@ const (
 	refreshTokenType = "refresh"
 )
 
+type RegistrationEventPublisher interface {
+	PublishUserRegistered(ctx context.Context, event queue.UserRegisteredEvent) error
+}
+
 type AuthService struct {
 	userRepo         *repository.UserRepository
 	tokenRepo        *repository.TokenRepository
@@ -30,6 +35,7 @@ type AuthService struct {
 	jwtRefreshTTL    time.Duration
 	cache            *cache.Service
 	profileCacheTTL  time.Duration
+	eventPublisher   RegistrationEventPublisher
 }
 
 func NewAuthService(
@@ -41,6 +47,7 @@ func NewAuthService(
 	jwtRefreshTTL time.Duration,
 	cacheService *cache.Service,
 	profileCacheTTL time.Duration,
+	eventPublisher RegistrationEventPublisher,
 ) *AuthService {
 	return &AuthService{
 		userRepo:         userRepo,
@@ -51,6 +58,7 @@ func NewAuthService(
 		jwtRefreshTTL:    jwtRefreshTTL,
 		cache:            cacheService,
 		profileCacheTTL:  profileCacheTTL,
+		eventPublisher:   eventPublisher,
 	}
 }
 
@@ -77,6 +85,16 @@ func (s *AuthService) Register(dto dto.RegisterDTO) (*models.User, error) {
 
 	if err := s.userRepo.Create(user); err != nil {
 		return nil, err
+	}
+
+	if s.eventPublisher == nil {
+		return nil, errors.New("registration event publisher is not configured")
+	}
+	if err := s.eventPublisher.PublishUserRegistered(
+		context.Background(),
+		queue.NewUserRegisteredEvent(user.ID, user.Email),
+	); err != nil {
+		return nil, fmt.Errorf("publish user registered event: %w", err)
 	}
 
 	return user, nil

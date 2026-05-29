@@ -15,6 +15,7 @@ dist/
 # Go workspace/cache artifacts
 vendor/
 .gocache/
+.gomodcache/
 coverage.out
 coverage.html
 

@@ -12,5 +12,7 @@ Thumbs.db
 *.log
 *.tmp
 *.exe
+.gocache/
+.gomodcache/
 deploy/.env
 deploy/.env.example

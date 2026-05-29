@@ -7,10 +7,12 @@ import (
 	"Web_lab/internal/cache"
 	"Web_lab/internal/config"
 	"Web_lab/internal/database"
+	"Web_lab/internal/mailer"
 	"Web_lab/internal/notes/handler"
 	"Web_lab/internal/notes/repository"
 	"Web_lab/internal/notes/routes"
 	"Web_lab/internal/notes/service"
+	"Web_lab/internal/queue"
 	storageHandler "Web_lab/internal/storage/handler"
 	storageRepo "Web_lab/internal/storage/repository"
 	storageRoutes "Web_lab/internal/storage/routes"
@@ -24,6 +26,7 @@ import (
 
 	_ "Web_lab/docs"
 
+	amqp "github.com/rabbitmq/amqp091-go"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -47,7 +50,8 @@ import (
 
 func main() {
 	cfg := config.Load()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	db, err := database.NewDatabase(ctx, cfg.MongoURI, cfg.DBName)
 	if err != nil {
@@ -93,6 +97,39 @@ func main() {
 	)
 	fileHandler := storageHandler.NewFileHandler(fileService, cfg.MaxFileSize)
 
+	queueClient, err := queue.NewClient(queue.Config{
+		Host:                cfg.RabbitMQHost,
+		Port:                cfg.RabbitMQPort,
+		User:                cfg.RabbitMQUser,
+		Pass:                cfg.RabbitMQPass,
+		Exchange:            cfg.RabbitMQExchange,
+		DeadLetterExchange:  cfg.RabbitMQDLX,
+		UserRegisteredQueue: cfg.UserRegisteredQ,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize RabbitMQ: %v", err)
+	}
+	defer queueClient.Close()
+
+	mailService := mailer.New(mailer.Config{
+		Host:   cfg.SMTPHost,
+		Port:   cfg.SMTPPort,
+		User:   cfg.SMTPUser,
+		Pass:   cfg.SMTPPass,
+		From:   cfg.SMTPFrom,
+		Secure: cfg.SMTPSecure,
+	})
+
+	userRegisteredConsumer := queue.NewConsumer(queueClient, mailService)
+	if err := userRegisteredConsumer.Start(ctx); err != nil {
+		log.Fatalf("Failed to start RabbitMQ consumer: %v", err)
+	}
+	go func() {
+		if err, ok := <-queueClient.NotifyClose(make(chan *amqp.Error, 1)); ok && err != nil {
+			log.Fatalf("RabbitMQ connection closed: %v", err)
+		}
+	}()
+
 	authService := userService.NewAuthService(
 		userRepo,
 		tokenRepo,
@@ -102,6 +139,7 @@ func main() {
 		cfg.JWTRefreshTTL,
 		cacheService,
 		cfg.CacheDefaultTTL,
+		queueClient,
 	)
 
 	oauthConfig := oauth.LoadOAuthConfig()

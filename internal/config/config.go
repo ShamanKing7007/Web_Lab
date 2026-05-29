@@ -30,6 +30,19 @@ type Config struct {
 	MinIOBucket      string
 	MinIOUseSSL      bool
 	MaxFileSize      int64
+	RabbitMQHost     string
+	RabbitMQPort     string
+	RabbitMQUser     string
+	RabbitMQPass     string
+	RabbitMQExchange string
+	RabbitMQDLX      string
+	UserRegisteredQ  string
+	SMTPHost         string
+	SMTPPort         string
+	SMTPUser         string
+	SMTPPass         string
+	SMTPFrom         string
+	SMTPSecure       bool
 }
 
 func Load() *Config {
@@ -56,6 +69,19 @@ func Load() *Config {
 		MinIOBucket:      getEnvOrDefault("MINIO_BUCKET", "web-labs-files"),
 		MinIOUseSSL:      mustParseBoolEnv("MINIO_USE_SSL", "false"),
 		MaxFileSize:      mustParseInt64Env("MAX_FILE_SIZE", "10485760"),
+		RabbitMQHost:     getEnvOrDefault("RABBITMQ_HOST", "localhost"),
+		RabbitMQPort:     getEnvOrDefault("RABBITMQ_PORT", "5672"),
+		RabbitMQUser:     os.Getenv("RABBITMQ_USER"),
+		RabbitMQPass:     os.Getenv("RABBITMQ_PASS"),
+		RabbitMQExchange: getEnvOrDefault("RABBITMQ_EXCHANGE", "app.events"),
+		RabbitMQDLX:      getEnvOrDefault("RABBITMQ_DLX", "app.dlx"),
+		UserRegisteredQ:  getEnvOrDefault("QUEUE_USER_REGISTERED", "wp.auth.user.registered"),
+		SMTPHost:         os.Getenv("SMTP_HOST"),
+		SMTPPort:         getEnvOrDefault("SMTP_PORT", "465"),
+		SMTPUser:         os.Getenv("SMTP_USER"),
+		SMTPPass:         os.Getenv("SMTP_PASS"),
+		SMTPFrom:         os.Getenv("SMTP_FROM"),
+		SMTPSecure:       mustParseBoolEnv("SMTP_SECURE", "true"),
 	}
 
 	if cfg.MongoURI == "" {
@@ -78,6 +104,24 @@ func Load() *Config {
 	}
 	if cfg.MinIOSecretKey == "" {
 		log.Fatal("MINIO_SECRET_KEY environment variable is required")
+	}
+	if cfg.RabbitMQUser == "" {
+		log.Fatal("RABBITMQ_USER environment variable is required")
+	}
+	if cfg.RabbitMQPass == "" {
+		log.Fatal("RABBITMQ_PASS environment variable is required")
+	}
+	if cfg.SMTPHost == "" {
+		log.Fatal("SMTP_HOST environment variable is required")
+	}
+	if cfg.SMTPUser == "" {
+		log.Fatal("SMTP_USER environment variable is required")
+	}
+	if cfg.SMTPPass == "" {
+		log.Fatal("SMTP_PASS environment variable is required")
+	}
+	if cfg.SMTPFrom == "" {
+		log.Fatal("SMTP_FROM environment variable is required")
 	}
 
 	return cfg
